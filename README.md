@@ -25,9 +25,7 @@ Evaluated on 5 sample invoices (`data/sample-invoices/`).
 | 1 | PaddleOCR + GLiNER2 | 22.8s | 0.4250 | 0.4609 | 0.4462 |
 | 2 | PaddleOCR + Qwen3-4B | 22.2s | 0.4625 | 0.2875 | 0.3458 |
 | 3 | Qwen2.5-VL-7B | 11.8s | 0.6375 | 0.6900 | 0.6667 |
-| 4 | MiniCPM-V-4.5 | — | — | — | — |
-
-> Exp 4 not yet evaluated.
+| 4 | MiniCPM-V-4.5 | 13.2s | 0.5875 | 0.6700 | 0.6333 |
 
 ## Setup
 
@@ -35,7 +33,7 @@ Evaluated on 5 sample invoices (`data/sample-invoices/`).
 uv sync
 ```
 
-VLM and Qwen3 experiments require a running [llama.cpp](https://github.com/ggerganov/llama.cpp) server. Use the provided scripts to download models and start servers:
+Qwen3/Exp3 require a running [llama.cpp](https://github.com/ggerganov/llama.cpp) server. Use the provided scripts to download models and start servers:
 
 ```bash
 # Exp 2 — Qwen3 NER (default port 8080)
@@ -44,11 +42,11 @@ VLM and Qwen3 experiments require a running [llama.cpp](https://github.com/ggerg
 # Exp 3 — Qwen2.5-VL (default port 8080)
 ./scripts/serve_qwen25vl.sh
 
-# Exp 4 — MiniCPM-V (default port 8081)
-./scripts/serve_minicpmv.sh
 ```
 
 Each script downloads the GGUF model on first run (via `huggingface_hub`) and starts `llama-server`.
+
+Exp 4 uses `llama-mtmd-cli` directly (no server needed). Ensure `llama-mtmd-cli` is installed and in `PATH`.
 
 ## Usage
 
@@ -61,6 +59,9 @@ uv run python local-invoice-parser/experiments/exp1_paddleocr_gliner2ner.py --im
 uv run python local-invoice-parser/experiments/exp2_paddleocr_qwen3ner.py --image data/sample-invoices/1.png
 uv run python local-invoice-parser/experiments/exp3_vlm_qwen25vl.py --image data/sample-invoices/1.png
 uv run python local-invoice-parser/experiments/exp4_vlm_minicpm.py --image data/sample-invoices/1.png
+
+# Optional explicit binary/model paths for Exp 4
+uv run python local-invoice-parser/experiments/exp4_vlm_minicpm.py --image data/sample-invoices/1.png --mtmd-bin /path/to/llama-mtmd-cli --model-path /path/to/MiniCPM-V-4_5-Q4_K_M.gguf --mmproj-path /path/to/mmproj-model-f16.gguf
 ```
 
 ### Eval

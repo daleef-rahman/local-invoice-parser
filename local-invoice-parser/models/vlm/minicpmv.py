@@ -1,30 +1,18 @@
-"""
-MiniCPM-V backend via llama.cpp native /completion endpoint.
+"""MiniCPM-V backend via llama.cpp `llama-mtmd-cli`."""
 
-MiniCPM-V's chat template is not compatible with llama.cpp's OpenAI-layer,
-so this backend calls the native /completion API directly with image_data.
-
-Start the server first:
-    ./scripts/serve_minicpmv.sh
-
-Then run:
-    python exp2_vlm.py --image invoice.jpg --vlm-backend minicpmv
-"""
-
-import base64
-import io
+import subprocess
 from pathlib import Path
 
-import httpx
-from PIL import Image
-
 from schema import AdvancedReceiptData, ProductLineItem
-from models.utils import ensure_llama_server, parse_json_with_retries
+from models.utils import parse_json_with_retries
 from models.vlm.common import VLMBackend
 
 _DEFAULT_MODEL = Path.home() / "models" / "minicpmv-4.5" / "MiniCPM-V-4_5-Q4_K_M.gguf"
 _DEFAULT_MMPROJ = Path.home() / "models" / "minicpmv-4.5" / "mmproj-model-f16.gguf"
 _CTX_SIZE = 4096
+_TOP_P = 0.8
+_TOP_K = 100
+_REPEAT_PENALTY = 1.05
 
 
 EXTRACTION_PROMPT = """Extract all invoice/receipt fields from this image.
@@ -63,83 +51,91 @@ Use null for any field not found. Preserve original formatting for amounts and d
 
 class MiniCPMVBackend(VLMBackend):
     """
-    VLM backend for MiniCPM-V via the llama.cpp native /completion endpoint.
+    VLM backend for MiniCPM-V via `llama-mtmd-cli`.
 
     Args:
-        base_url:       llama.cpp server base URL (default: http://localhost:8081).
+        mtmd_bin:       Path to llama-mtmd-cli binary.
+        model_path:     Path to MiniCPM-V gguf model.
+        mmproj_path:    Path to mmproj file.
         temperature:    Sampling temperature.
         max_tokens:     Max tokens for the response.
-        max_image_size: Longest side of the image before encoding (pixels).
+        ctx_size:       Context size.
+        debug:          Print payload/server diagnostics for troubleshooting.
     """
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8081",
+        mtmd_bin: str = "llama-mtmd-cli",
+        model_path: str | None = None,
+        mmproj_path: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 1024,
-        max_image_size: int = 1024,
+        ctx_size: int = _CTX_SIZE,
+        debug: bool = False,
     ):
-        for path, label in [(_DEFAULT_MODEL, "model"), (_DEFAULT_MMPROJ, "mmproj")]:
+        self.mtmd_bin = mtmd_bin
+        self.model_path = Path(model_path) if model_path else _DEFAULT_MODEL
+        self.mmproj_path = Path(mmproj_path) if mmproj_path else _DEFAULT_MMPROJ
+        for path, label in [(self.model_path, "model"), (self.mmproj_path, "mmproj")]:
             if not path.exists():
                 raise FileNotFoundError(
                     f"MiniCPM-V {label} not found at {path}. "
                     "Run scripts/serve_minicpmv.sh first to download it."
                 )
-        ensure_llama_server(
-            base_url,
-            default_port=8081,
-            model_args=[
-                "--model", str(_DEFAULT_MODEL),
-                "--mmproj", str(_DEFAULT_MMPROJ),
-                "--ctx-size", str(_CTX_SIZE),
-            ],
-        )
-        self.base_url = base_url.rstrip("/")
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.max_image_size = max_image_size
-        self._client = httpx.Client(timeout=120.0)
+        self.ctx_size = ctx_size
+        self.debug = debug
+    def _request_raw(self, image_path: str, prompt: str) -> str:
+        cmd = [
+            self.mtmd_bin,
+            "-m",
+            str(self.model_path),
+            "--mmproj",
+            str(self.mmproj_path),
+            "-c",
+            str(self.ctx_size),
+            "--temp",
+            str(self.temperature),
+            "--top-p",
+            str(_TOP_P),
+            "--top-k",
+            str(_TOP_K),
+            "--repeat-penalty",
+            str(_REPEAT_PENALTY),
+            "--image",
+            str(Path(image_path).resolve()),
+            "-n",
+            str(self.max_tokens),
+            "-p",
+            prompt,
+        ]
+        if self.debug:
+            print(f"  [debug] mtmd_bin={self.mtmd_bin}")
+            print(f"  [debug] model={self.model_path}")
+            print(f"  [debug] mmproj={self.mmproj_path}")
+            print(f"  [debug] cmd={' '.join(cmd)}")
 
-    def _encode_image(self, image_path: str) -> str:
-        """Resize to max_image_size and return raw base64 (no data-URL prefix)."""
-        img = Image.open(image_path).convert("RGB")
-        img.thumbnail((self.max_image_size, self.max_image_size), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
-        return base64.b64encode(buf.getvalue()).decode()
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"llama-mtmd-cli failed (exit {proc.returncode}).\n"
+                f"stderr:\n{proc.stderr[-1200:]}\nstdout:\n{proc.stdout[-1200:]}"
+            )
 
-    def _request_raw(self, b64_image: str, prompt: str) -> str:
-        # MiniCPM-V 4.5 uses ChatML format; [img-1] is the llama.cpp image placeholder
-        formatted = (
-            f"<|im_start|>user\n[img-1]\n{prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
-        payload = {
-            "prompt": formatted,
-            "image_data": [{"data": b64_image, "id": 1}],
-            "temperature": self.temperature,
-            "n_predict": self.max_tokens,
-            "stop": ["<|im_end|>", "<|im_start|>"],
-        }
-        resp = self._client.post(f"{self.base_url}/completion", json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        tokens_evaluated = data.get("tokens_evaluated", "?")
-        tokens_predicted = data.get("tokens_predicted", "?")
-        print(f"  [debug] prompt_tokens={tokens_evaluated} generated_tokens={tokens_predicted}")
-        content = data.get("content", "")
-        print(f"  [debug] raw response: {content[:300]!r}")
-        return content
+        if self.debug:
+            print(f"  [debug] mtmd stderr: {proc.stderr[-400:]}")
+            print(f"  [debug] mtmd stdout head: {proc.stdout[:300]!r}")
+        return proc.stdout
 
     def extract(self, image_path: str) -> AdvancedReceiptData:
-        b64_image = self._encode_image(image_path)
         prompts = [
             EXTRACTION_PROMPT,
             EXTRACTION_PROMPT + "\n\nRetry: Return ONLY minified valid JSON. Do not truncate strings.",
             EXTRACTION_PROMPT + "\n\nFinal retry: Return a compact JSON object only.",
         ]
         raw = parse_json_with_retries(
-            lambda prompt: self._request_raw(b64_image=b64_image, prompt=prompt),
+            lambda prompt: self._request_raw(image_path=image_path, prompt=prompt),
             prompts,
             error_prefix="Failed to parse JSON from MiniCPM-V response",
         )
@@ -154,4 +150,4 @@ class MiniCPMVBackend(VLMBackend):
         )
 
     def close(self):
-        self._client.close()
+        pass
