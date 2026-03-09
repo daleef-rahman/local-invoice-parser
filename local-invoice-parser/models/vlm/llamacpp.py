@@ -11,73 +11,18 @@ Then run:
 
 import base64
 import io
-import json
-import re
-import subprocess
-import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 from PIL import Image
 from openai import OpenAI
 
 from schema import AdvancedReceiptData, ProductLineItem
+from models.utils import ensure_llama_server, parse_json_with_retries
 from models.vlm.common import VLMBackend
 
 _DEFAULT_MODEL = Path.home() / "models" / "qwen25vl-7b" / "Qwen_Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
 _DEFAULT_MMPROJ = Path.home() / "models" / "qwen25vl-7b" / "mmproj-Qwen_Qwen2.5-VL-7B-Instruct-f16.gguf"
 _CTX_SIZE = 4096
-
-
-def _server_healthy(base_url: str) -> bool:
-    parsed = urllib.parse.urlparse(base_url)
-    health_url = f"{parsed.scheme}://{parsed.netloc}/health"
-    try:
-        with urllib.request.urlopen(health_url, timeout=2) as r:
-            return r.status == 200
-    except Exception:
-        return False
-
-
-def _ensure_server(
-    base_url: str,
-    model_path: Path = _DEFAULT_MODEL,
-    mmproj_path: Path = _DEFAULT_MMPROJ,
-    timeout: int = 120,
-) -> None:
-    if _server_healthy(base_url):
-        return
-
-    for path, label in [(model_path, "model"), (mmproj_path, "mmproj")]:
-        if not path.exists():
-            raise FileNotFoundError(
-                f"Qwen2.5-VL {label} not found at {path}. "
-                "Run scripts/serve_qwen25vl.sh first to download it."
-            )
-
-    port = urllib.parse.urlparse(base_url).port or 8080
-    print(f"llama-server not running at {base_url} — starting on port {port}...")
-    subprocess.Popen(
-        [
-            "llama-server",
-            "--model", str(model_path),
-            "--mmproj", str(mmproj_path),
-            "--port", str(port),
-            "--ctx-size", str(_CTX_SIZE),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _server_healthy(base_url):
-            print("llama-server ready.")
-            return
-        time.sleep(2)
-
-    raise RuntimeError(f"llama-server did not become ready within {timeout}s")
 
 
 EXTRACTION_PROMPT = """Extract all invoice/receipt fields from this image.
@@ -133,48 +78,26 @@ class LlamaCppVLMBackend(VLMBackend):
         max_tokens: int = 1024,
         max_image_size: int = 1024,
     ):
-        _ensure_server(base_url)
+        for path, label in [(_DEFAULT_MODEL, "model"), (_DEFAULT_MMPROJ, "mmproj")]:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Qwen2.5-VL {label} not found at {path}. "
+                    "Run scripts/serve_qwen25vl.sh first to download it."
+                )
+        ensure_llama_server(
+            base_url,
+            default_port=8080,
+            model_args=[
+                "--model", str(_DEFAULT_MODEL),
+                "--mmproj", str(_DEFAULT_MMPROJ),
+                "--ctx-size", str(_CTX_SIZE),
+            ],
+        )
         self.client = OpenAI(base_url=base_url, api_key="not-needed")
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.max_image_size = max_image_size
-
-    @staticmethod
-    def _extract_json_object(text: str) -> str:
-        # Handle ```json ... ``` wrappers first.
-        fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-        if fence_match:
-            text = fence_match.group(1)
-
-        start = text.find("{")
-        if start == -1:
-            raise json.JSONDecodeError("No JSON object start found", text, 0)
-
-        in_string = False
-        escape = False
-        depth = 0
-
-        for i, ch in enumerate(text[start:], start=start):
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == "\"":
-                    in_string = False
-                continue
-
-            if ch == "\"":
-                in_string = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start : i + 1]
-
-        raise json.JSONDecodeError("No complete JSON object found", text, start)
 
     def _request_raw(self, image_data_url: str, prompt: str) -> str:
         response = self.client.chat.completions.create(
@@ -205,27 +128,16 @@ class LlamaCppVLMBackend(VLMBackend):
     def extract(self, image_path: str) -> AdvancedReceiptData:
         image_data_url = self._encode_image(image_path)
 
-        last_error: Exception | None = None
         prompts = [
             EXTRACTION_PROMPT,
             EXTRACTION_PROMPT + "\n\nRetry: Return ONLY minified valid JSON. Do not truncate strings.",
             EXTRACTION_PROMPT + "\n\nFinal retry: Return a compact JSON object only.",
         ]
-        raw: dict | None = None
-        for prompt in prompts:
-            content = self._request_raw(image_data_url=image_data_url, prompt=prompt)
-            try:
-                raw = json.loads(content)
-                break
-            except json.JSONDecodeError:
-                try:
-                    raw = json.loads(self._extract_json_object(content))
-                    break
-                except json.JSONDecodeError as e:
-                    last_error = e
-
-        if raw is None:
-            raise ValueError(f"Failed to parse JSON from llama.cpp response: {last_error}")
+        raw = parse_json_with_retries(
+            lambda prompt: self._request_raw(image_data_url=image_data_url, prompt=prompt),
+            prompts,
+            error_prefix="Failed to parse JSON from llama.cpp response",
+        )
 
         line_items = [
             ProductLineItem(**{k: item.get(k) for k in ProductLineItem.model_fields})

@@ -6,18 +6,18 @@ Modes:
     full    -> Hugging Face benchmark dataset
 
 Examples:
-    uv run python scripts/eval.py \
+    uv run python local-invoice-parser/eval.py \
       --mode simple \
-      --experiment exp1_ocr_ner.py
+      --experiment exp1_ocr_ner_gliner2
 
-    uv run python scripts/eval.py \
+    uv run python local-invoice-parser/eval.py \
       --mode simple \
-      --experiment exp2_vlm.py \
-      --experiment-arg --vlm-backend --experiment-arg qwen25vl
+      --experiment exp2_ocr_ner_qwen3 \
+      --experiment-param llama_url=http://localhost:8080/v1
 
-    uv run python scripts/eval.py \
+    uv run python local-invoice-parser/eval.py \
       --mode full \
-      --experiment exp2_vlm.py \
+      --experiment exp3_vlm_qwen25vl \
       --limit 100
 """
 
@@ -27,9 +27,7 @@ import argparse
 import json
 import math
 import re
-import shlex
-import subprocess
-import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -39,6 +37,8 @@ from typing import Any
 
 from datasets import load_dataset
 from PIL import Image
+from experiments import create_experiment, parse_constructor_kwargs, resolve_experiment_id
+from experiments.base import BaseExperiment
 
 SCALAR_FIELDS = [
     "totalAmount",
@@ -262,7 +262,7 @@ def load_examples_full(dataset_name: str, split: str, limit: int | None) -> list
                 raise ValueError(f"Could not find image key in row {ex_id}. Keys: {list(row.keys())}")
             image_path = _dataset_image_to_path(row[image_key], tmp_dir, ex_id)
 
-            # Persist image into stable temp file under workspace temp for the subprocess call.
+            # Persist image into stable temp file; source temporary directory is closed on return.
             safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", ex_id)
             stable_tmp = Path(tempfile.gettempdir()) / f"invoice_eval_{safe_id}.png"
             if image_path != stable_tmp:
@@ -273,42 +273,10 @@ def load_examples_full(dataset_name: str, split: str, limit: int | None) -> list
     return examples
 
 
-def run_experiment(
-    experiment_path: Path,
-    image_path: Path,
-    extra_args: list[str],
-    cwd: Path,
-) -> dict[str, Any]:
-    cmd = [
-        sys.executable,
-        str(experiment_path),
-        "--image",
-        str(image_path),
-        *extra_args,
-    ]
-
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            "Experiment failed\n"
-            f"Command: {' '.join(shlex.quote(x) for x in cmd)}\n"
-            f"Exit code: {proc.returncode}\n"
-            f"Stderr:\n{proc.stderr}"
-        )
-
-    payload = json.loads(proc.stdout)
-
-    receipt = payload.get("receipt")
-    if not isinstance(receipt, dict):
-        raise ValueError("Experiment stdout missing 'receipt' dict")
-    timings = payload.get("timings") or {}
-    return receipt, timings
-
-
 def evaluate(
     mode: str,
-    experiment_path: Path,
-    experiment_args: list[str],
+    experiment_name: str,
+    experiment: BaseExperiment,
     sample_dir: Path,
     sample_ground_truth: Path,
     dataset_name: str,
@@ -331,18 +299,13 @@ def evaluate(
     per_field_totals = {field: FieldCounter() for field in SCALAR_FIELDS}
     per_example: list[dict[str, Any]] = []
 
-    repo_root = Path(__file__).resolve().parent.parent
-
     total_wall_s = 0.0
     for i, ex in enumerate(examples, start=1):
         print(f"[{i}/{len(examples)}] Evaluating example {ex.example_id} ...")
         t_start = time.perf_counter()
-        pred, timings = run_experiment(
-            experiment_path=experiment_path,
-            image_path=ex.image_path,
-            extra_args=experiment_args,
-            cwd=repo_root,
-        )
+        run_result = experiment.run(str(ex.image_path))
+        pred = run_result.receipt.model_dump()
+        timings = run_result.timings
         wall_s = round(time.perf_counter() - t_start, 3)
         total_wall_s += wall_s
 
@@ -373,7 +336,7 @@ def evaluate(
     n = len(examples)
     result = {
         "mode": mode,
-        "experiment": str(experiment_path),
+        "experiment": experiment_name,
         "num_examples": n,
         "timing_s": {
             "total_wall": round(total_wall_s, 3),
@@ -403,15 +366,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["simple", "full"], required=True, help="Evaluation mode")
     parser.add_argument(
         "--experiment",
-        type=Path,
+        type=str,
         required=True,
-        help="Path to experiment script (e.g., exp1_ocr_ner.py or exp2_vlm.py)",
+        help="Experiment id from registry (for example: exp1_ocr_ner_gliner2)",
     )
     parser.add_argument(
-        "--experiment-arg",
+        "--experiment-param",
         action="append",
         default=[],
-        help="Pass-through arg to experiment script (repeat flag for multiple args)",
+        help="Constructor params as key=value (repeatable), e.g. llama_url=http://localhost:8080/v1",
     )
 
     parser.add_argument("--sample-dir", type=Path, default=Path("data/sample-invoices"))
@@ -427,14 +390,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    experiment_path = args.experiment.resolve()
-    if not experiment_path.exists():
-        raise FileNotFoundError(f"Experiment script not found: {experiment_path}")
+    experiment_id = resolve_experiment_id(args.experiment)
+    experiment_kwargs = parse_constructor_kwargs(args.experiment_param)
+    experiment = create_experiment(experiment_id, **experiment_kwargs)
 
     result = evaluate(
         mode=args.mode,
-        experiment_path=experiment_path,
-        experiment_args=args.experiment_arg,
+        experiment_name=experiment_id,
+        experiment=experiment,
         sample_dir=args.sample_dir,
         sample_ground_truth=args.sample_ground_truth,
         dataset_name=args.dataset,
@@ -462,8 +425,7 @@ def main() -> None:
     if output_path is None:
         repo_root = Path(__file__).resolve().parent.parent
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        experiment_stem = experiment_path.stem
-        output_path = repo_root / "reports" / f"{experiment_stem}_{args.mode}_{timestamp}.json"
+        output_path = repo_root / "reports" / f"{experiment_id}_{args.mode}_{timestamp}.json"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2))

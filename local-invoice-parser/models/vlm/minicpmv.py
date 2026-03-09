@@ -13,73 +13,18 @@ Then run:
 
 import base64
 import io
-import json
-import re
-import subprocess
-import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import httpx
 from PIL import Image
 
 from schema import AdvancedReceiptData, ProductLineItem
+from models.utils import ensure_llama_server, parse_json_with_retries
 from models.vlm.common import VLMBackend
 
 _DEFAULT_MODEL = Path.home() / "models" / "minicpmv-4.5" / "MiniCPM-V-4_5-Q4_K_M.gguf"
 _DEFAULT_MMPROJ = Path.home() / "models" / "minicpmv-4.5" / "mmproj-model-f16.gguf"
 _CTX_SIZE = 4096
-
-
-def _server_healthy(base_url: str) -> bool:
-    parsed = urllib.parse.urlparse(base_url)
-    health_url = f"{parsed.scheme}://{parsed.netloc}/health"
-    try:
-        with urllib.request.urlopen(health_url, timeout=2) as r:
-            return r.status == 200
-    except Exception:
-        return False
-
-
-def _ensure_server(
-    base_url: str,
-    model_path: Path = _DEFAULT_MODEL,
-    mmproj_path: Path = _DEFAULT_MMPROJ,
-    timeout: int = 120,
-) -> None:
-    if _server_healthy(base_url):
-        return
-
-    for path, label in [(model_path, "model"), (mmproj_path, "mmproj")]:
-        if not path.exists():
-            raise FileNotFoundError(
-                f"MiniCPM-V {label} not found at {path}. "
-                "Run scripts/serve_minicpmv.sh first to download it."
-            )
-
-    port = urllib.parse.urlparse(base_url).port or 8081
-    print(f"llama-server not running at {base_url} — starting on port {port}...")
-    subprocess.Popen(
-        [
-            "llama-server",
-            "--model", str(model_path),
-            "--mmproj", str(mmproj_path),
-            "--port", str(port),
-            "--ctx-size", str(_CTX_SIZE),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _server_healthy(base_url):
-            print("llama-server ready.")
-            return
-        time.sleep(2)
-
-    raise RuntimeError(f"llama-server did not become ready within {timeout}s")
 
 
 EXTRACTION_PROMPT = """Extract all invoice/receipt fields from this image.
@@ -134,7 +79,21 @@ class MiniCPMVBackend(VLMBackend):
         max_tokens: int = 1024,
         max_image_size: int = 1024,
     ):
-        _ensure_server(base_url)
+        for path, label in [(_DEFAULT_MODEL, "model"), (_DEFAULT_MMPROJ, "mmproj")]:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"MiniCPM-V {label} not found at {path}. "
+                    "Run scripts/serve_minicpmv.sh first to download it."
+                )
+        ensure_llama_server(
+            base_url,
+            default_port=8081,
+            model_args=[
+                "--model", str(_DEFAULT_MODEL),
+                "--mmproj", str(_DEFAULT_MMPROJ),
+                "--ctx-size", str(_CTX_SIZE),
+            ],
+        )
         self.base_url = base_url.rstrip("/")
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -148,35 +107,6 @@ class MiniCPMVBackend(VLMBackend):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90)
         return base64.b64encode(buf.getvalue()).decode()
-
-    @staticmethod
-    def _extract_json_object(text: str) -> str:
-        fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-        if fence_match:
-            text = fence_match.group(1)
-        start = text.find("{")
-        if start == -1:
-            raise json.JSONDecodeError("No JSON object start found", text, 0)
-        in_string = escape = False
-        depth = 0
-        for i, ch in enumerate(text[start:], start=start):
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == "\"":
-                    in_string = False
-                continue
-            if ch == "\"":
-                in_string = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start: i + 1]
-        raise json.JSONDecodeError("No complete JSON object found", text, start)
 
     def _request_raw(self, b64_image: str, prompt: str) -> str:
         # MiniCPM-V 4.5 uses ChatML format; [img-1] is the llama.cpp image placeholder
@@ -203,27 +133,16 @@ class MiniCPMVBackend(VLMBackend):
 
     def extract(self, image_path: str) -> AdvancedReceiptData:
         b64_image = self._encode_image(image_path)
-        last_error: Exception | None = None
         prompts = [
             EXTRACTION_PROMPT,
             EXTRACTION_PROMPT + "\n\nRetry: Return ONLY minified valid JSON. Do not truncate strings.",
             EXTRACTION_PROMPT + "\n\nFinal retry: Return a compact JSON object only.",
         ]
-        raw: dict | None = None
-        for prompt in prompts:
-            content = self._request_raw(b64_image=b64_image, prompt=prompt)
-            try:
-                raw = json.loads(content)
-                break
-            except json.JSONDecodeError:
-                try:
-                    raw = json.loads(self._extract_json_object(content))
-                    break
-                except json.JSONDecodeError as e:
-                    last_error = e
-
-        if raw is None:
-            raise ValueError(f"Failed to parse JSON from MiniCPM-V response: {last_error}")
+        raw = parse_json_with_retries(
+            lambda prompt: self._request_raw(b64_image=b64_image, prompt=prompt),
+            prompts,
+            error_prefix="Failed to parse JSON from MiniCPM-V response",
+        )
 
         line_items = [
             ProductLineItem(**{k: item.get(k) for k in ProductLineItem.model_fields})

@@ -68,10 +68,13 @@ uv run python local-invoice-parser/experiments/exp4_vlm_minicpm.py --image data/
 Evaluate against the sample invoices in `data/sample-invoices/` using `data/sample-invoices/ground_truth.json`:
 
 ```bash
-uv run python local-invoice-parser/eval.py --mode simple --experiment local-invoice-parser/experiments/exp1_paddleocr_gliner2ner.py
-uv run python local-invoice-parser/eval.py --mode simple --experiment local-invoice-parser/experiments/exp2_paddleocr_qwen3ner.py
-uv run python local-invoice-parser/eval.py --mode simple --experiment local-invoice-parser/experiments/exp3_vlm_qwen25vl.py
-uv run python local-invoice-parser/eval.py --mode simple --experiment local-invoice-parser/experiments/exp4_vlm_minicpm.py
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp1_ocr_ner_gliner2
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp3_vlm_qwen25vl
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp4_vlm_minicpmv
+
+# pass constructor params when needed
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3 --experiment-param llama_url=http://localhost:8080/v1
 ```
 
 Reports are saved to `reports/`.
@@ -80,10 +83,10 @@ Reports are saved to `reports/`.
 
 ```
 local-invoice-parser/   # Source code
-  experiments/          # One file per experiment
+  experiments/          # Class-based experiments + registry
   pipeline/             # Shared OCR+NER and VLM pipeline logic
-  ner/                  # NER backends (GLiNER2, Qwen3)
-  vlm/                  # VLM backends (Qwen2.5-VL, MiniCPM-V)
+  models/ner/           # NER backends (GLiNER2, Qwen3)
+  models/vlm/           # VLM backends (Qwen2.5-VL, MiniCPM-V)
   eval.py               # Evaluation script
   schema.py             # Pydantic output schema
 scripts/                # llama-server serve scripts

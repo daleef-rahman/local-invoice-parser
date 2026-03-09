@@ -1,37 +1,57 @@
-"""
-Experiment 2: PaddleOCR + Qwen3 NER pipeline for invoice parsing.
-Self-sufficient: starts llama-server automatically if not already running.
+"""Experiment 2: PaddleOCR + Qwen3 NER pipeline."""
 
-Run:
-    python exp2_paddleocr_qwen3ner.py --image invoice.jpg
-    python exp2_paddleocr_qwen3ner.py --image invoice.jpg --llama-url http://localhost:9090/v1
-"""
-import sys
-import json
-from pathlib import Path
-from datetime import datetime
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from __future__ import annotations
 
-import argparse
+if __package__ in {None, ""}:
+    import sys
+    from pathlib import Path
 
-from pipeline.ocr_ner import Config, run_pipeline, print_results, save_output
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-parser = argparse.ArgumentParser(description="Invoice parser: PaddleOCR + Qwen3 NER")
-parser.add_argument("--image", required=True, help="Path to invoice image")
-parser.add_argument("--llama-url", default="http://localhost:8080/v1", help="llama.cpp server URL")
-args = parser.parse_args()
+from experiments.base import BaseExperiment, ExperimentResult, build_common_parser, run_experiment_cli
+from pipeline.ocr_ner import Config, print_results, run_pipeline, save_output
 
-cfg = Config(ner_backend="qwen3", ner_backend_kwargs={"base_url": args.llama_url})
-receipt, ocr_regions, text, timings = run_pipeline(args.image, cfg)
 
-print_results(receipt, text, timings)
+class Exp2PaddleOCRQwen3(BaseExperiment):
+    experiment_id = "exp2_ocr_ner_qwen3"
+    description = "Invoice parser: PaddleOCR + Qwen3 NER"
 
-output_path = str(
-    Path(__file__).resolve().parent.parent.parent
-    / "reports"
-    / f"exp2_paddleocr_qwen3ner_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-)
-save_output(output_path, args.image, receipt, ocr_regions, text, timings)
+    def __init__(self, llama_url: str = "http://localhost:8080/v1"):
+        self.llama_url = llama_url
 
-payload = {"image": args.image, "timings": timings, "receipt": receipt.model_dump()}
-print(json.dumps(payload))
+    def run(self, image_path: str) -> ExperimentResult:
+        cfg = Config(ner_backend="qwen3", ner_backend_kwargs={"base_url": self.llama_url})
+        receipt, ocr_regions, text, timings = run_pipeline(image_path, cfg)
+        return ExperimentResult(
+            receipt=receipt,
+            timings=timings,
+            artifacts={"ocr_regions": ocr_regions, "text": text},
+        )
+
+    def print_result(self, result: ExperimentResult) -> None:
+        print_results(result.receipt, result.artifacts["text"], result.timings)
+
+    def save_output(self, output_path: str, image_path: str, result: ExperimentResult) -> None:
+        save_output(
+            output_path=output_path,
+            image_path=image_path,
+            receipt=result.receipt,
+            ocr_regions=result.artifacts["ocr_regions"],
+            text=result.artifacts["text"],
+            timings=result.timings,
+        )
+
+
+def main() -> None:
+    parser = build_common_parser(Exp2PaddleOCRQwen3.description)
+    parser.add_argument("--llama-url", default="http://localhost:8080/v1", help="llama.cpp server URL")
+    args = parser.parse_args()
+    run_experiment_cli(
+        Exp2PaddleOCRQwen3(llama_url=args.llama_url),
+        image_path=args.image,
+        output_path=args.output,
+    )
+
+
+if __name__ == "__main__":
+    main()

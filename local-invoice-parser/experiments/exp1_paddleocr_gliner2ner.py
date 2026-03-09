@@ -1,34 +1,49 @@
-"""
-Experiment 1: PaddleOCR + GLiNER2 NER pipeline for invoice parsing.
+"""Experiment 1: PaddleOCR + GLiNER2 NER pipeline."""
 
-Run:
-    python exp1_paddleocr_gliner2ner.py --image invoice.jpg
-"""
-import sys
-import json
-from pathlib import Path
-from datetime import datetime
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from __future__ import annotations
 
-import argparse
+if __package__ in {None, ""}:
+    import sys
+    from pathlib import Path
 
-from pipeline.ocr_ner import Config, run_pipeline, print_results, save_output
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-parser = argparse.ArgumentParser(description="Invoice parser: PaddleOCR + GLiNER2")
-parser.add_argument("--image", required=True, help="Path to invoice image")
-args = parser.parse_args()
+from experiments.base import BaseExperiment, ExperimentResult, build_common_parser, run_experiment_cli
+from pipeline.ocr_ner import Config, print_results, run_pipeline, save_output
 
-cfg = Config(ner_backend="gliner2")
-receipt, ocr_regions, text, timings = run_pipeline(args.image, cfg)
 
-print_results(receipt, text, timings)
+class Exp1PaddleOCRGLiNER2(BaseExperiment):
+    experiment_id = "exp1_ocr_ner_gliner2"
+    description = "Invoice parser: PaddleOCR + GLiNER2"
 
-output_path = str(
-    Path(__file__).resolve().parent.parent.parent
-    / "reports"
-    / f"exp1_paddleocr_gliner2ner_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-)
-save_output(output_path, args.image, receipt, ocr_regions, text, timings)
+    def run(self, image_path: str) -> ExperimentResult:
+        cfg = Config(ner_backend="gliner2")
+        receipt, ocr_regions, text, timings = run_pipeline(image_path, cfg)
+        return ExperimentResult(
+            receipt=receipt,
+            timings=timings,
+            artifacts={"ocr_regions": ocr_regions, "text": text},
+        )
 
-payload = {"image": args.image, "timings": timings, "receipt": receipt.model_dump()}
-print(json.dumps(payload))
+    def print_result(self, result: ExperimentResult) -> None:
+        print_results(result.receipt, result.artifacts["text"], result.timings)
+
+    def save_output(self, output_path: str, image_path: str, result: ExperimentResult) -> None:
+        save_output(
+            output_path=output_path,
+            image_path=image_path,
+            receipt=result.receipt,
+            ocr_regions=result.artifacts["ocr_regions"],
+            text=result.artifacts["text"],
+            timings=result.timings,
+        )
+
+
+def main() -> None:
+    parser = build_common_parser(Exp1PaddleOCRGLiNER2.description)
+    args = parser.parse_args()
+    run_experiment_cli(Exp1PaddleOCRGLiNER2(), image_path=args.image, output_path=args.output)
+
+
+if __name__ == "__main__":
+    main()
