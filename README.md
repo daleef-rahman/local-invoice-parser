@@ -22,10 +22,10 @@ Evaluated on 5 sample invoices (`data/sample-invoices/`).
 
 | # | Experiment | Avg time/invoice | Scalar acc | Line-item acc | Overall acc |
 |---|-----------|-----------------|------------|---------------|-------------|
-| 1 | PaddleOCR + GLiNER2 | 22.8s | 0.4250 | 0.4609 | 0.4462 |
-| 2 | PaddleOCR + Qwen3-4B | 22.2s | 0.4625 | 0.2875 | 0.3458 |
-| 3 | Qwen2.5-VL-7B | 11.8s | 0.6375 | 0.6900 | 0.6667 |
-| 4 | MiniCPM-V-4.5 | 13.2s | 0.5875 | 0.6700 | 0.6333 |
+| 1 | PaddleOCR + GLiNER2 | 7.5s | 0.4250 | 0.4870 | 0.4615 |
+| 2 | PaddleOCR + Qwen3-4B | 14.3s | 0.4625 | 0.2875 | 0.3458 |
+| 3 | Qwen2.5-VL-7B | 10.9s | 0.6375 | 0.6900 | 0.6667 |
+| 4 | MiniCPM-V-4.5 | 14.1s | 0.5875 | 0.6700 | 0.6333 |
 
 ## Setup
 

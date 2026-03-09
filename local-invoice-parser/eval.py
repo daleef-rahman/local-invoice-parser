@@ -23,6 +23,16 @@ Examples:
 
 from __future__ import annotations
 
+import logging
+import os
+import warnings
+
+# Suppress noisy third-party logs before any imports that trigger them.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+warnings.filterwarnings("ignore", category=Warning, module="requests")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 import argparse
 import json
 import math

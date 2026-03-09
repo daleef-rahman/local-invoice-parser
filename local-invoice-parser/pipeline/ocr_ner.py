@@ -42,11 +42,24 @@ def extract_text(ocr: PaddleOCR, image_path: str) -> tuple[str, list[dict]]:
     return "\n".join(lines), raw
 
 
-def run_pipeline(image_path: str, cfg: Config) -> tuple[AdvancedReceiptData, list[dict], str, dict]:
-    """Full OCR → NER pipeline for a single invoice image."""
-    print("Loading models...", file=sys.stderr)
-    ocr = load_ocr(cfg)
-    ner = load_ner(cfg)
+def run_pipeline(
+    image_path: str,
+    cfg: Config,
+    ocr: PaddleOCR | None = None,
+    ner: NERBackend | None = None,
+) -> tuple[AdvancedReceiptData, list[dict], str, dict]:
+    """Full OCR → NER pipeline for a single invoice image.
+
+    If *ocr* and *ner* are provided they are reused (no reload); callers that
+    pass pre-loaded models are responsible for closing *ner* themselves.
+    """
+    owns_models = ocr is None or ner is None
+    if owns_models:
+        print("Loading models...", file=sys.stderr)
+        if ocr is None:
+            ocr = load_ocr(cfg)
+        if ner is None:
+            ner = load_ner(cfg)
 
     print(f"Extracting text from: {image_path}", file=sys.stderr)
     t0 = time.perf_counter()
@@ -59,7 +72,8 @@ def run_pipeline(image_path: str, cfg: Config) -> tuple[AdvancedReceiptData, lis
     t_ner = time.perf_counter()
     print(f"  → {len(receipt.productLineItems)} line items found", file=sys.stderr)
 
-    ner.close()
+    if owns_models:
+        ner.close()
 
     timings = {
         "ocr_s": round(t_ocr - t0, 3),

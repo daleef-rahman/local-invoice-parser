@@ -9,16 +9,30 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.base import BaseExperiment, ExperimentResult, build_common_parser, run_experiment_cli
-from pipeline.ocr_ner import Config, print_results, run_pipeline, save_output
+from pipeline.ocr_ner import Config, load_ner, load_ocr, print_results, run_pipeline, save_output
 
 
 class Exp1PaddleOCRGLiNER2(BaseExperiment):
     experiment_id = "exp1_ocr_ner_gliner2"
     description = "Invoice parser: PaddleOCR + GLiNER2"
 
+    def __init__(self) -> None:
+        self._cfg = Config(ner_backend="gliner2")
+        self._ocr = None
+        self._ner = None
+
+    def _ensure_models(self) -> None:
+        if self._ocr is None or self._ner is None:
+            import sys
+            print("Loading models...", file=sys.stderr)
+            self._ocr = load_ocr(self._cfg)
+            self._ner = load_ner(self._cfg)
+
     def run(self, image_path: str) -> ExperimentResult:
-        cfg = Config(ner_backend="gliner2")
-        receipt, ocr_regions, text, timings = run_pipeline(image_path, cfg)
+        self._ensure_models()
+        receipt, ocr_regions, text, timings = run_pipeline(
+            image_path, self._cfg, ocr=self._ocr, ner=self._ner
+        )
         return ExperimentResult(
             receipt=receipt,
             timings=timings,
