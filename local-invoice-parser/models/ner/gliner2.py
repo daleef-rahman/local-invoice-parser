@@ -6,7 +6,7 @@ Uses the GLiNER2 model for structured JSON extraction from invoice text.
 from gliner2 import GLiNER2
 
 from schema import AdvancedReceiptData, ProductLineItem
-from ner.common import NERBackend
+from models.ner.common import NERBackend
 
 
 # Format: "field_name::type::description"  (::str = single value)

@@ -14,7 +14,7 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
 from schema import AdvancedReceiptData, ProductLineItem
-from vlm.common import VLMBackend
+from models.vlm.common import VLMBackend
 
 
 EXTRACTION_PROMPT = """Extract all invoice/receipt fields from this image.

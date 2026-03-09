@@ -13,13 +13,71 @@ import base64
 import io
 import json
 import re
+import subprocess
+import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from PIL import Image
 from openai import OpenAI
 
 from schema import AdvancedReceiptData, ProductLineItem
-from vlm.common import VLMBackend
+from models.vlm.common import VLMBackend
+
+_DEFAULT_MODEL = Path.home() / "models" / "qwen25vl-7b" / "Qwen_Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
+_DEFAULT_MMPROJ = Path.home() / "models" / "qwen25vl-7b" / "mmproj-Qwen_Qwen2.5-VL-7B-Instruct-f16.gguf"
+_CTX_SIZE = 4096
+
+
+def _server_healthy(base_url: str) -> bool:
+    parsed = urllib.parse.urlparse(base_url)
+    health_url = f"{parsed.scheme}://{parsed.netloc}/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _ensure_server(
+    base_url: str,
+    model_path: Path = _DEFAULT_MODEL,
+    mmproj_path: Path = _DEFAULT_MMPROJ,
+    timeout: int = 120,
+) -> None:
+    if _server_healthy(base_url):
+        return
+
+    for path, label in [(model_path, "model"), (mmproj_path, "mmproj")]:
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Qwen2.5-VL {label} not found at {path}. "
+                "Run scripts/serve_qwen25vl.sh first to download it."
+            )
+
+    port = urllib.parse.urlparse(base_url).port or 8080
+    print(f"llama-server not running at {base_url} — starting on port {port}...")
+    subprocess.Popen(
+        [
+            "llama-server",
+            "--model", str(model_path),
+            "--mmproj", str(mmproj_path),
+            "--port", str(port),
+            "--ctx-size", str(_CTX_SIZE),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _server_healthy(base_url):
+            print("llama-server ready.")
+            return
+        time.sleep(2)
+
+    raise RuntimeError(f"llama-server did not become ready within {timeout}s")
 
 
 EXTRACTION_PROMPT = """Extract all invoice/receipt fields from this image.
@@ -75,6 +133,7 @@ class LlamaCppVLMBackend(VLMBackend):
         max_tokens: int = 1024,
         max_image_size: int = 1024,
     ):
+        _ensure_server(base_url)
         self.client = OpenAI(base_url=base_url, api_key="not-needed")
         self.model = model
         self.temperature = temperature

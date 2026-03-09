@@ -285,6 +285,316 @@
           ]
         }
       }
+    },
+    {
+      "image_id": "3",
+      "image_path": "images/3.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 6.52
+          },
+          "taxAmount": {
+            "value": 0.0
+          },
+          "dateTime": {
+            "value": null
+          },
+          "merchantName": {
+            "value": "ALDI"
+          },
+          "merchantAddress": {
+            "value": "4664 Sawmill Road, Columbus OH"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "Ohio"
+          },
+          "merchantCity": {
+            "value": "Columbus"
+          },
+          "merchantPostalCode": {
+            "value": null
+          },
+          "merchantPhone": {
+            "value": null
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": null
+          },
+          "paidAmount": {
+            "value": null
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Artisan Lettuce"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 1.99
+              },
+              "totalPrice": {
+                "value": 1.99
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Mushrooms"
+              },
+              "quantity": {
+                "value": 4
+              },
+              "unitPrice": {
+                "value": 0.59
+              },
+              "totalPrice": {
+                "value": 2.36
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Multi-ColorPeppers"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 0.99
+              },
+              "totalPrice": {
+                "value": 0.99
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Baby Carrots"
+              },
+              "quantity": {
+                "value": 2
+              },
+              "unitPrice": {
+                "value": 0.59
+              },
+              "totalPrice": {
+                "value": 1.18
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "4",
+      "image_path": "images/4.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 52.44
+          },
+          "taxAmount": {
+            "value": 4.44
+          },
+          "dateTime": {
+            "value": "2017-08-26T17:31:03"
+          },
+          "merchantName": {
+            "value": "Supreme LA"
+          },
+          "merchantAddress": {
+            "value": "439 N. Fairfax Avenue, Los Angeles, CA 90036"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "California"
+          },
+          "merchantCity": {
+            "value": "Los Angeles"
+          },
+          "merchantPostalCode": {
+            "value": "90036"
+          },
+          "merchantPhone": {
+            "value": "323 655 6205"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "13677"
+          },
+          "paidAmount": {
+            "value": 52.44
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "50201 Black Shoulder Bag OS"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 48.0
+              },
+              "totalPrice": {
+                "value": 48.0
+              },
+              "productCode": {
+                "value": "50201"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "5",
+      "image_path": "images/5.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 0.0
+          },
+          "taxAmount": {
+            "value": 0.0
+          },
+          "dateTime": {
+            "value": "2016-11-23T21:34:10"
+          },
+          "merchantName": {
+            "value": "Pizza Hut Restaurant Sdn. Bhd."
+          },
+          "merchantAddress": {
+            "value": "Lui 7 Tower 1, USquare@PJ City Centre, Jln Utara, 46200 P.Jaya, Selangor"
+          },
+          "currencyCode": {
+            "value": "MYR"
+          },
+          "merchantCountry": {
+            "value": "Malaysia"
+          },
+          "merchantState": {
+            "value": "Selangor"
+          },
+          "merchantCity": {
+            "value": "Petaling Jaya"
+          },
+          "merchantPostalCode": {
+            "value": "46200"
+          },
+          "merchantPhone": {
+            "value": "0103237065"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "656985"
+          },
+          "paidAmount": {
+            "value": null
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Customer Name T T"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 0.0
+              },
+              "totalPrice": {
+                "value": 0.0
+              },
+              "productCode": {
+                "value": "63825"
+              }
+            },
+            {
+              "productName": {
+                "value": "Ges Redeem T T"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 0.0
+              },
+              "totalPrice": {
+                "value": 0.0
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "New Ges GBH Soup T"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 0.0
+              },
+              "totalPrice": {
+                "value": 0.0
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
     }
   ]
 }

@@ -9,10 +9,57 @@ prompt) so the response is pure JSON.
 """
 
 import json
+import subprocess
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
 from openai import OpenAI
 
 from schema import AdvancedReceiptData, ProductLineItem
-from ner.common import NERBackend
+from models.ner.common import NERBackend
+
+_DEFAULT_MODEL = Path.home() / "models" / "qwen3-4b" / "Qwen_Qwen3-4B-Q4_K_M.gguf"
+_CTX_SIZE = 4096
+
+
+def _server_healthy(base_url: str) -> bool:
+    parsed = urllib.parse.urlparse(base_url)
+    health_url = f"{parsed.scheme}://{parsed.netloc}/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _ensure_server(base_url: str, model_path: Path = _DEFAULT_MODEL, timeout: int = 120) -> None:
+    if _server_healthy(base_url):
+        return
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Qwen3 model not found at {model_path}. "
+            "Run scripts/serve_qwen3.sh first to download it."
+        )
+
+    port = urllib.parse.urlparse(base_url).port or 8080
+    print(f"llama-server not running at {base_url} — starting on port {port}...")
+    subprocess.Popen(
+        ["llama-server", "--model", str(model_path), "--port", str(port), "--ctx-size", str(_CTX_SIZE)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _server_healthy(base_url):
+            print("llama-server ready.")
+            return
+        time.sleep(2)
+
+    raise RuntimeError(f"llama-server did not become ready within {timeout}s")
 
 
 SYSTEM_PROMPT = """/no-think
@@ -70,6 +117,7 @@ class Qwen3Backend(NERBackend):
         temperature: float = 0.0,
         max_tokens: int = 2048,
     ):
+        _ensure_server(base_url)
         self.client = OpenAI(base_url=base_url, api_key="not-needed")
         self.model = model
         self.temperature = temperature

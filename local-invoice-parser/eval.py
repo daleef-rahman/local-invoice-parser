@@ -30,8 +30,9 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -278,16 +279,11 @@ def run_experiment(
     extra_args: list[str],
     cwd: Path,
 ) -> dict[str, Any]:
-    with tempfile.NamedTemporaryFile(prefix="invoice_pred_", suffix=".json", delete=False) as f:
-        out_file = Path(f.name)
-
     cmd = [
         sys.executable,
         str(experiment_path),
         "--image",
         str(image_path),
-        "--output",
-        str(out_file),
         *extra_args,
     ]
 
@@ -297,17 +293,16 @@ def run_experiment(
             "Experiment failed\n"
             f"Command: {' '.join(shlex.quote(x) for x in cmd)}\n"
             f"Exit code: {proc.returncode}\n"
-            f"Stdout:\n{proc.stdout}\n"
             f"Stderr:\n{proc.stderr}"
         )
 
-    payload = json.loads(out_file.read_text())
-    out_file.unlink(missing_ok=True)
+    payload = json.loads(proc.stdout)
 
     receipt = payload.get("receipt")
     if not isinstance(receipt, dict):
-        raise ValueError(f"Experiment output missing 'receipt' dict: {out_file}")
-    return receipt
+        raise ValueError("Experiment stdout missing 'receipt' dict")
+    timings = payload.get("timings") or {}
+    return receipt, timings
 
 
 def evaluate(
@@ -338,14 +333,19 @@ def evaluate(
 
     repo_root = Path(__file__).resolve().parent.parent
 
+    total_wall_s = 0.0
     for i, ex in enumerate(examples, start=1):
         print(f"[{i}/{len(examples)}] Evaluating example {ex.example_id} ...")
-        pred = run_experiment(
+        t_start = time.perf_counter()
+        pred, timings = run_experiment(
             experiment_path=experiment_path,
             image_path=ex.image_path,
             extra_args=experiment_args,
             cwd=repo_root,
         )
+        wall_s = round(time.perf_counter() - t_start, 3)
+        total_wall_s += wall_s
+
         score = _score_example(pred=pred, truth=ex.ground_truth)
 
         for k in totals:
@@ -366,13 +366,19 @@ def evaluate(
                     else None
                 ),
                 "overall_accuracy": round(score["total_correct"] / max(score["total_fields"], 1), 4),
+                "timings_s": {**timings, "wall": wall_s},
             }
         )
 
+    n = len(examples)
     result = {
         "mode": mode,
         "experiment": str(experiment_path),
-        "num_examples": len(examples),
+        "num_examples": n,
+        "timing_s": {
+            "total_wall": round(total_wall_s, 3),
+            "avg_wall_per_invoice": round(total_wall_s / n, 3) if n else None,
+        },
         "metrics": {
             "scalar_accuracy": round(totals["scalar_correct"] / max(totals["scalar_total"], 1), 4),
             "line_item_accuracy": (
@@ -452,10 +458,16 @@ def main() -> None:
     for field, score in metrics["per_field_accuracy"].items():
         print(f"  {field:>20}: {score:.4f}")
 
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(result, indent=2))
-        print(f"\nSaved report to {args.output}")
+    output_path = args.output
+    if output_path is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        experiment_stem = experiment_path.stem
+        output_path = repo_root / "reports" / f"{experiment_stem}_{args.mode}_{timestamp}.json"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(result, indent=2))
+    print(f"\nSaved report to {output_path}")
 
 
 if __name__ == "__main__":
