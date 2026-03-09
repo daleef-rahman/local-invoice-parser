@@ -1,0 +1,14 @@
+[project]
+name = "local-invoice-parser"
+version = "0.1.0"
+description = "Local invoice parser and evaluator"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=3.0.0",
+    "pillow>=10.0.0",
+    "paddleocr>=2.9.0",
+    "paddlepaddle>=2.6.0",
+    "gliner2>=0.1.0",
+    "pydantic>=2.0.0",
+    "openai>=2.26.0",
+]

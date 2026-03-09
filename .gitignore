@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# uv
+.uv/
+
+# Data files (invoices may contain sensitive info)
+data/sample-invoices/*.png
+data/sample-invoices/*.pdf
+data/sample-invoices/*.jpg
+data/sample-invoices/*.jpeg
+
+# Reports output
+reports/
+
+# Models / weights
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.*

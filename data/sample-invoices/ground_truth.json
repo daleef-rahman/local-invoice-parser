@@ -1,0 +1,290 @@
+{
+  "test_images": [
+    {
+      "image_id": "1",
+      "image_path": "images/1.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 141.78
+          },
+          "taxAmount": {
+            "value": 0.0
+          },
+          "dateTime": {
+            "value": "2011-02-06T14:41:47"
+          },
+          "merchantName": {
+            "value": "Angeli's"
+          },
+          "merchantAddress": {
+            "value": "1401 8th Ave - Menominee, MI"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "Michigan"
+          },
+          "merchantCity": {
+            "value": "Menominee"
+          },
+          "merchantPostalCode": {
+            "value": null
+          },
+          "merchantPhone": {
+            "value": "906-863-5575"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": null
+          },
+          "paidAmount": {
+            "value": 141.78
+          },
+          "discountAmount": {
+            "value": 8.0
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Diet Mt Dew 24 Pack"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 33.95
+              },
+              "totalPrice": {
+                "value": 33.95
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Cold Water Lobster T"
+              },
+              "quantity": {
+                "value": 6
+              },
+              "unitPrice": {
+                "value": null
+              },
+              "totalPrice": {
+                "value": 61.72
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Porterhouse Steak"
+              },
+              "quantity": {
+                "value": 2
+              },
+              "unitPrice": {
+                "value": null
+              },
+              "totalPrice": {
+                "value": 23.91
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Deposit"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 2.4
+              },
+              "totalPrice": {
+                "value": 12.0
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "2",
+      "image_path": "images/2.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 16.7
+          },
+          "taxAmount": {
+            "value": 1.09
+          },
+          "dateTime": {
+            "value": "2016-05-16T09:30:02"
+          },
+          "merchantName": {
+            "value": "R K Eating House Pte Ltd"
+          },
+          "merchantAddress": {
+            "value": "Singapore"
+          },
+          "currencyCode": {
+            "value": "SGD"
+          },
+          "merchantCountry": {
+            "value": "Singapore"
+          },
+          "merchantState": {
+            "value": null
+          },
+          "merchantCity": {
+            "value": "Singapore"
+          },
+          "merchantPostalCode": {
+            "value": null
+          },
+          "merchantPhone": {
+            "value": null
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "RKE-INV-00604084D No:179"
+          },
+          "paidAmount": {
+            "value": 20.0
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Tea Halia"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 1.3
+              },
+              "totalPrice": {
+                "value": 1.3
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Sunny Side Up E"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 0.5
+              },
+              "totalPrice": {
+                "value": 0.5
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Rojak"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 5.5
+              },
+              "totalPrice": {
+                "value": 5.5
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Tea C Halia"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 1.4
+              },
+              "totalPrice": {
+                "value": 1.4
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Plain Prata"
+              },
+              "quantity": {
+                "value": 2
+              },
+              "unitPrice": {
+                "value": 1.1
+              },
+              "totalPrice": {
+                "value": 2.2
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Fried Mee Chick"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 4.7
+              },
+              "totalPrice": {
+                "value": 4.7
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
