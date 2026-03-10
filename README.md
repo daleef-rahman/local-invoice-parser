@@ -22,15 +22,14 @@ Extracted fields are defined in [schema.py](local-invoice-parser/schema.py) (`Ad
 
 ## Results
 
-Evaluated on 10 sample invoices (`data/sample-invoices/`). Scores use partial credit (0/0.5/1.0 per field).
+Evaluated on 9 sample invoices (`data/sample-invoices/`) from [`reports/all_experiments_simple_20260311_025303.json`](/Users/daleefrahman/Documents/startup-experiments/local-invoice-parser/reports/all_experiments_simple_20260311_025303.json). Scores use partial credit (0/0.5/1.0 per field).
 
 | # | Experiment | Avg time/invoice | Scalar acc | Line-item acc | Overall acc |
 |---|-----------|-----------------|------------|---------------|-------------|
-| 1 | PaddleOCR + GLiNER2 | 7.5s | 0.4250 | 0.4870 | 0.4615 |
-| 2 | PaddleOCR + Qwen3-4B | 14.3s | 0.4625 | 0.2875 | 0.3458 |
-| 3 | Qwen2.5-VL-7B | 10.9s | 0.6375 | 0.6900 | 0.6667 |
-| 4 | MiniCPM-V-4.5 | 14.1s | 0.5875 | 0.6700 | 0.6333 |
-| B1 | Gemini-2.5-Flash | 10.6s | 0.7750 | 0.6098 | 0.6822 |
+| 1 | PaddleOCR + GLiNER2 | 6.1s | 0.5278 | 0.4121 | 0.4660 |
+| 2 | PaddleOCR + Qwen3-4B | 16.8s | 0.6250 | 0.4357 | 0.5127 |
+| 3 | Qwen2.5-VL-7B | 15.3s | 0.6389 | 0.6233 | 0.6310 |
+| 4 | MiniCPM-V-4.5 | 17.8s | 0.6389 | 0.5355 | 0.5853 |
 
 ## Setup
 
