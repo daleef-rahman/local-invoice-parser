@@ -12,8 +12,7 @@ Examples:
 
     uv run python local-invoice-parser/eval.py \
       --mode simple \
-      --experiment exp2_ocr_ner_qwen3 \
-      --experiment-param llama_url=http://localhost:8080/v1
+      --experiment exp2_ocr_ner_qwen3
 
     uv run python local-invoice-parser/eval.py \
       --mode full \
@@ -37,6 +36,7 @@ import argparse
 import json
 import math
 import re
+from difflib import SequenceMatcher
 import tempfile
 import time
 from dataclasses import dataclass
@@ -47,9 +47,13 @@ from typing import Any
 
 from datasets import load_dataset
 from PIL import Image
-from experiments import create_experiment, parse_constructor_kwargs, resolve_experiment_id
-from experiments.base import BaseExperiment
-from experiments.catalog import EXPERIMENT_SPECS
+from experiments.catalog import EXPERIMENT_SPECS, resolve_experiment_id
+from pipeline import (
+    PreparedPipeline,
+    close_pipeline,
+    prepare_pipeline,
+    run_pipeline,
+)
 from runtime import managed_experiment_runtime
 
 SCALAR_FIELDS = [
@@ -81,8 +85,8 @@ class Example:
 
 
 @dataclass
-class FieldCounter:
-    correct: int = 0
+class FieldAccumulator:
+    score: float = 0.0
     total: int = 0
 
 
@@ -143,54 +147,194 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
-def _values_match(pred: Any, truth: Any) -> bool:
-    if pred is None and truth is None:
+# ── field-type sets ────────────────────────────────────────────────────────────
+
+_NUMERIC_FIELDS = frozenset({"totalAmount", "taxAmount", "paidAmount", "discountAmount", "serviceCharge"})
+_OPTIONAL_ZERO_FIELDS = frozenset({"discountAmount", "serviceCharge"})
+_NULL_EQUIVALENTS = frozenset({"na", "n/a", "n.a.", "none", "null", "-", "--", ""})
+
+_COUNTRY_ALIASES: dict[str, str] = {
+    "usa": "united states", "us": "united states", "u.s.": "united states",
+    "u.s.a.": "united states", "uk": "united kingdom", "u.k.": "united kingdom",
+    "gb": "united kingdom", "great britain": "united kingdom",
+}
+
+_STATE_ALIASES: dict[str, str] = {
+    "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas",
+    "ca": "california", "co": "colorado", "ct": "connecticut", "de": "delaware",
+    "fl": "florida", "ga": "georgia", "hi": "hawaii", "id": "idaho",
+    "il": "illinois", "in": "indiana", "ia": "iowa", "ks": "kansas",
+    "ky": "kentucky", "la": "louisiana", "me": "maine", "md": "maryland",
+    "ma": "massachusetts", "mi": "michigan", "mn": "minnesota", "ms": "mississippi",
+    "mo": "missouri", "mt": "montana", "ne": "nebraska", "nv": "nevada",
+    "nh": "new hampshire", "nj": "new jersey", "nm": "new mexico", "ny": "new york",
+    "nc": "north carolina", "nd": "north dakota", "oh": "ohio", "ok": "oklahoma",
+    "or": "oregon", "pa": "pennsylvania", "ri": "rhode island", "sc": "south carolina",
+    "sd": "south dakota", "tn": "tennessee", "tx": "texas", "ut": "utah",
+    "vt": "vermont", "va": "virginia", "wa": "washington", "wv": "west virginia",
+    "wi": "wisconsin", "wy": "wyoming", "dc": "district of columbia",
+}
+
+# ── per-type scorers ───────────────────────────────────────────────────────────
+
+
+def _is_null_equivalent(value: Any) -> bool:
+    if value is None:
         return True
+    if isinstance(value, str):
+        return _normalize_text(value) in _NULL_EQUIVALENTS
+    return False
+
+
+def _score_numeric(pred: Any, truth: Any, optional_zero: bool = False) -> float:
+    """1.0 = exact (≤0.01 diff), 0.5 = within 5%, 0.0 = otherwise."""
+    pred_f, truth_f = _to_float(pred), _to_float(truth)
+
+    if optional_zero:
+        pred_zero = pred is None or (pred_f is not None and abs(pred_f) < 1e-2)
+        truth_zero = truth is None or (truth_f is not None and abs(truth_f) < 1e-2)
+        if pred_zero and truth_zero:
+            return 1.0
+
+    if pred is None and truth is None:
+        return 1.0
     if pred is None or truth is None:
-        return False
+        return 0.0
+    if pred_f is None or truth_f is None:
+        return 0.0
 
-    pred_num = _to_float(pred)
-    truth_num = _to_float(truth)
-    if pred_num is not None and truth_num is not None:
-        return abs(pred_num - truth_num) <= 1e-2
+    diff = abs(pred_f - truth_f)
+    if diff <= 1e-2:
+        return 1.0
+    if truth_f != 0 and diff / abs(truth_f) <= 0.05:
+        return 0.5
+    return 0.0
 
-    return _normalize_text(str(pred)) == _normalize_text(str(truth))
+
+def _score_string(pred: Any, truth: Any, field_type: str | None = None) -> float:
+    """1.0 = high similarity (≥0.95), 0.5 = partial (≥0.70), 0.0 = low."""
+    if _is_null_equivalent(pred) and _is_null_equivalent(truth):
+        return 1.0
+    if _is_null_equivalent(pred) or _is_null_equivalent(truth):
+        return 0.0
+
+    p = _normalize_text(str(pred))
+    t = _normalize_text(str(truth))
+
+    if field_type == "country":
+        p, t = _COUNTRY_ALIASES.get(p, p), _COUNTRY_ALIASES.get(t, t)
+    elif field_type == "state":
+        p, t = _STATE_ALIASES.get(p, p), _STATE_ALIASES.get(t, t)
+
+    if p == t:
+        return 1.0
+
+    sim = SequenceMatcher(None, p, t).ratio()
+    if sim >= 0.95:
+        return 1.0
+    if sim >= 0.70:
+        return 0.5
+    return 0.0
+
+
+def _score_datetime(pred: Any, truth: Any) -> float:
+    """1.0 = date+time match (≤1 min), 0.5 = date only, 0.0 = different date."""
+    if pred is None and truth is None:
+        return 1.0
+    if pred is None or truth is None:
+        return 0.0
+
+    _fmts = [
+        "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+    ]
+
+    pred_dt = truth_dt = None
+    for fmt in _fmts:
+        try:
+            pred_dt = datetime.strptime(str(pred).strip(), fmt)
+            break
+        except ValueError:
+            pass
+    for fmt in _fmts:
+        try:
+            truth_dt = datetime.strptime(str(truth).strip(), fmt)
+            break
+        except ValueError:
+            pass
+
+    if pred_dt is None or truth_dt is None:
+        return _score_string(pred, truth)
+
+    if pred_dt.date() != truth_dt.date():
+        return 0.0
+    return 1.0 if abs((pred_dt - truth_dt).total_seconds()) <= 60 else 0.5
+
+
+def _score_field(field: str, pred_val: Any, truth_val: Any) -> float:
+    if field in _NUMERIC_FIELDS:
+        return _score_numeric(pred_val, truth_val, optional_zero=field in _OPTIONAL_ZERO_FIELDS)
+    if field == "dateTime":
+        return _score_datetime(pred_val, truth_val)
+    field_type = "country" if field == "merchantCountry" else ("state" if field == "merchantState" else None)
+    return _score_string(pred_val, truth_val, field_type=field_type)
+
+
+def _score_line_items(pred_items: list, truth_items: list) -> tuple[float, float]:
+    """Best-match pairing of line items. Returns (total_score, max_possible)."""
+    if not pred_items and not truth_items:
+        return 0.0, 0.0
+
+    n_fields = len(LINE_ITEM_FIELDS)
+    max_count = max(len(pred_items), len(truth_items))
+
+    if not pred_items or not truth_items:
+        return 0.0, float(max_count * n_fields)
+
+    used: set[int] = set()
+    total_score = 0.0
+
+    for t_item in truth_items:
+        t_name = _normalize_text(str(t_item.get("productName") or ""))
+        best_idx, best_sim = -1, -1.0
+        for i, p_item in enumerate(pred_items):
+            if i in used:
+                continue
+            sim = SequenceMatcher(None, t_name, _normalize_text(str(p_item.get("productName") or ""))).ratio()
+            if sim > best_sim:
+                best_sim, best_idx = sim, i
+
+        if best_idx >= 0:
+            used.add(best_idx)
+            p_item = pred_items[best_idx]
+            for f in LINE_ITEM_FIELDS:
+                total_score += _score_field(f, p_item.get(f), t_item.get(f))
+
+    return total_score, float(max_count * n_fields)
 
 
 def _score_example(pred: dict[str, Any], truth: dict[str, Any]) -> dict[str, Any]:
-    scalar_correct = 0
-    scalar_total = len(SCALAR_FIELDS)
+    scalar_score = 0.0
+    scalar_total = float(len(SCALAR_FIELDS))
+    per_field: dict[str, float] = {}
 
-    per_field: dict[str, bool] = {}
     for field in SCALAR_FIELDS:
-        ok = _values_match(pred.get(field), truth.get(field))
-        per_field[field] = ok
-        scalar_correct += int(ok)
+        s = _score_field(field, pred.get(field), truth.get(field))
+        per_field[field] = s
+        scalar_score += s
 
-    pred_items = pred.get("productLineItems") or []
-    truth_items = truth.get("productLineItems") or []
-
-    li_correct = 0
-    li_total = max(len(pred_items), len(truth_items)) * len(LINE_ITEM_FIELDS)
-    if li_total == 0:
-        li_total = 0
-
-    for idx in range(max(len(pred_items), len(truth_items))):
-        pred_item = pred_items[idx] if idx < len(pred_items) else {}
-        truth_item = truth_items[idx] if idx < len(truth_items) else {}
-        for field in LINE_ITEM_FIELDS:
-            li_correct += int(_values_match(pred_item.get(field), truth_item.get(field)))
-
-    total_correct = scalar_correct + li_correct
-    total_fields = scalar_total + li_total
+    li_score, li_total = _score_line_items(
+        pred.get("productLineItems") or [],
+        truth.get("productLineItems") or [],
+    )
 
     return {
-        "scalar_correct": scalar_correct,
+        "scalar_score": scalar_score,
         "scalar_total": scalar_total,
-        "line_item_correct": li_correct,
+        "line_item_score": li_score,
         "line_item_total": li_total,
-        "total_correct": total_correct,
-        "total_fields": total_fields,
+        "total_score": scalar_score + li_score,
+        "total_fields": scalar_total + li_total,
         "per_field": per_field,
     }
 
@@ -288,7 +432,7 @@ def load_examples_full(dataset_name: str, split: str, limit: int | None) -> list
 def evaluate(
     mode: str,
     experiment_name: str,
-    experiment: BaseExperiment,
+    prepared: PreparedPipeline,
     sample_dir: Path,
     sample_ground_truth: Path,
     dataset_name: str,
@@ -301,21 +445,21 @@ def evaluate(
         examples = load_examples_full(dataset_name=dataset_name, split=split, limit=limit)
 
     totals = {
-        "scalar_correct": 0,
-        "scalar_total": 0,
-        "line_item_correct": 0,
-        "line_item_total": 0,
-        "total_correct": 0,
-        "total_fields": 0,
+        "scalar_score": 0.0,
+        "scalar_total": 0.0,
+        "line_item_score": 0.0,
+        "line_item_total": 0.0,
+        "total_score": 0.0,
+        "total_fields": 0.0,
     }
-    per_field_totals = {field: FieldCounter() for field in SCALAR_FIELDS}
+    per_field_totals = {field: FieldAccumulator() for field in SCALAR_FIELDS}
     per_example: list[dict[str, Any]] = []
 
     total_wall_s = 0.0
     for i, ex in enumerate(examples, start=1):
         print(f"[{i}/{len(examples)}] Evaluating example {ex.example_id} ...")
         t_start = time.perf_counter()
-        run_result = experiment.run(str(ex.image_path))
+        run_result = run_pipeline(prepared, str(ex.image_path))
         pred = run_result.receipt.model_dump()
         timings = run_result.timings
         wall_s = round(time.perf_counter() - t_start, 3)
@@ -326,21 +470,21 @@ def evaluate(
         for k in totals:
             totals[k] += score[k]
 
-        for field, ok in score["per_field"].items():
+        for field, s in score["per_field"].items():
             per_field_totals[field].total += 1
-            per_field_totals[field].correct += int(ok)
+            per_field_totals[field].score += s
 
         per_example.append(
             {
                 "id": ex.example_id,
                 "image_path": str(ex.image_path),
-                "scalar_accuracy": round(score["scalar_correct"] / max(score["scalar_total"], 1), 4),
+                "scalar_accuracy": round(score["scalar_score"] / max(score["scalar_total"], 1), 4),
                 "line_item_accuracy": (
-                    round(score["line_item_correct"] / score["line_item_total"], 4)
+                    round(score["line_item_score"] / score["line_item_total"], 4)
                     if score["line_item_total"] > 0
                     else None
                 ),
-                "overall_accuracy": round(score["total_correct"] / max(score["total_fields"], 1), 4),
+                "overall_accuracy": round(score["total_score"] / max(score["total_fields"], 1), 4),
                 "timings_s": {**timings, "wall": wall_s},
             }
         )
@@ -355,17 +499,17 @@ def evaluate(
             "avg_wall_per_invoice": round(total_wall_s / n, 3) if n else None,
         },
         "metrics": {
-            "scalar_accuracy": round(totals["scalar_correct"] / max(totals["scalar_total"], 1), 4),
+            "scalar_accuracy": round(totals["scalar_score"] / max(totals["scalar_total"], 1), 4),
             "line_item_accuracy": (
-                round(totals["line_item_correct"] / totals["line_item_total"], 4)
+                round(totals["line_item_score"] / totals["line_item_total"], 4)
                 if totals["line_item_total"] > 0
                 else None
             ),
-            "overall_accuracy": round(totals["total_correct"] / max(totals["total_fields"], 1), 4),
+            "overall_accuracy": round(totals["total_score"] / max(totals["total_fields"], 1), 4),
             "counts": totals,
             "per_field_accuracy": {
-                field: round(counter.correct / max(counter.total, 1), 4)
-                for field, counter in per_field_totals.items()
+                field: round(acc.score / max(acc.total, 1), 4)
+                for field, acc in per_field_totals.items()
             },
         },
         "per_example": per_example,
@@ -380,15 +524,9 @@ def parse_args() -> argparse.Namespace:
     selection.add_argument(
         "--experiment",
         type=str,
-        help="Experiment id from registry (for example: exp1_ocr_ner_gliner2)",
+        help="Experiment id from the catalog (for example: exp1_ocr_ner_gliner2)",
     )
     selection.add_argument("--all", action="store_true", help="Run all experiments in the catalog")
-    parser.add_argument(
-        "--experiment-param",
-        action="append",
-        default=[],
-        help="Constructor params as key=value (repeatable), e.g. llama_url=http://localhost:8080/v1",
-    )
 
     parser.add_argument("--sample-dir", type=Path, default=Path("data/sample-invoices"))
     parser.add_argument("--sample-ground-truth", type=Path, default=Path("data/sample-invoices/ground_truth.json"))
@@ -425,11 +563,15 @@ def _default_output_path(selection_name: str, mode: str) -> Path:
     return repo_root / "reports" / f"{selection_name}_{mode}_{timestamp}.json"
 
 
+def _save_report(payload: dict[str, Any], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2))
+
+
 def _run_experiment(
     *,
     mode: str,
     experiment_id: str,
-    experiment_kwargs: dict[str, Any],
     sample_dir: Path,
     sample_ground_truth: Path,
     dataset_name: str,
@@ -438,23 +580,25 @@ def _run_experiment(
 ) -> dict[str, Any]:
     spec = EXPERIMENT_SPECS[experiment_id]
     print(f"\n=== Running {experiment_id} ===")
-    with managed_experiment_runtime(spec, experiment_kwargs) as prepared:
-        experiment = create_experiment(experiment_id, **prepared.constructor_kwargs)
-        return evaluate(
-            mode=mode,
-            experiment_name=experiment_id,
-            experiment=experiment,
-            sample_dir=sample_dir,
-            sample_ground_truth=sample_ground_truth,
-            dataset_name=dataset_name,
-            split=split,
-            limit=limit,
-        )
+    with managed_experiment_runtime(spec):
+        loaded = prepare_pipeline(experiment_id)
+        try:
+            return evaluate(
+                mode=mode,
+                experiment_name=experiment_id,
+                prepared=loaded,
+                sample_dir=sample_dir,
+                sample_ground_truth=sample_ground_truth,
+                dataset_name=dataset_name,
+                split=split,
+                limit=limit,
+            )
+        finally:
+            close_pipeline(loaded)
 
 
 def main() -> None:
     args = parse_args()
-    experiment_kwargs = parse_constructor_kwargs(args.experiment_param)
     experiment_ids = (
         [resolve_experiment_id(args.experiment)]
         if args.experiment
@@ -466,7 +610,6 @@ def main() -> None:
         result = _run_experiment(
             mode=args.mode,
             experiment_id=experiment_id,
-            experiment_kwargs=experiment_kwargs,
             sample_dir=args.sample_dir,
             sample_ground_truth=args.sample_ground_truth,
             dataset_name=args.dataset,
@@ -506,8 +649,7 @@ def main() -> None:
             )
 
     output_path = args.output or _default_output_path(selection_name, args.mode)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2))
+    _save_report(payload, output_path)
     print(f"\nSaved report to {output_path}")
 
 

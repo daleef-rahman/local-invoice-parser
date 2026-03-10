@@ -5,11 +5,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from paddleocr import PaddleOCR
 
 from schema import AdvancedReceiptData
-from models.ner import NERBackend, get_backend
+from models.modelbackend import ModelBackend
+from models.ner import get_backend
 
 
 @dataclass
@@ -17,7 +19,7 @@ class Config:
     ocr_lang: str = "en"
     ocr_use_textline_orientation: bool = True
     ner_backend: str = "gliner2"
-    ner_backend_kwargs: dict = field(default_factory=dict)
+    backend_config: dict[str, Any] = field(default_factory=dict)
 
 
 def load_ocr(cfg: Config) -> PaddleOCR:
@@ -27,9 +29,9 @@ def load_ocr(cfg: Config) -> PaddleOCR:
     )
 
 
-def load_ner(cfg: Config) -> NERBackend:
+def load_ner(cfg: Config) -> ModelBackend:
     backend_cls = get_backend(cfg.ner_backend)
-    return backend_cls(**cfg.ner_backend_kwargs)
+    return backend_cls(**cfg.backend_config)
 
 
 def extract_text(ocr: PaddleOCR, image_path: str) -> tuple[str, list[dict]]:
@@ -46,7 +48,7 @@ def run_pipeline(
     image_path: str,
     cfg: Config,
     ocr: PaddleOCR | None = None,
-    ner: NERBackend | None = None,
+    ner: ModelBackend | None = None,
 ) -> tuple[AdvancedReceiptData, list[dict], str, dict]:
     """Full OCR → NER pipeline for a single invoice image.
 

@@ -5,20 +5,22 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from schema import AdvancedReceiptData
-from models.vlm import VLMBackend, get_backend
+from models.modelbackend import ModelBackend
+from models.vlm import get_backend
 
 
 @dataclass
 class Config:
-    vlm_backend: str = "llamacpp"
-    vlm_backend_kwargs: dict = field(default_factory=dict)
+    vlm_backend: str = "llama_server"
+    backend_config: dict[str, Any] = field(default_factory=dict)
 
 
-def load_vlm(cfg: Config) -> VLMBackend:
+def load_vlm(cfg: Config) -> ModelBackend:
     backend_cls = get_backend(cfg.vlm_backend)
-    return backend_cls(**cfg.vlm_backend_kwargs)
+    return backend_cls(**cfg.backend_config)
 
 
 def run_pipeline(image_path: str, cfg: Config) -> tuple[AdvancedReceiptData, dict]:

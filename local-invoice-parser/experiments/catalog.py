@@ -1,4 +1,4 @@
-"""Central experiment catalog with runtime and constructor metadata."""
+"""Central experiment catalog with runtime and backend metadata."""
 
 from __future__ import annotations
 
@@ -28,9 +28,11 @@ class RuntimeSpec:
 @dataclass(frozen=True)
 class ExperimentSpec:
     experiment_id: str
-    target: str
     description: str
-    constructor_defaults: dict[str, Any] = field(default_factory=dict)
+    pipeline: str
+    backend: str
+    backend_config: dict[str, Any] = field(default_factory=dict)
+    ocr_defaults: dict[str, Any] = field(default_factory=dict)
     runtime: RuntimeSpec = field(default_factory=RuntimeSpec)
     aliases: tuple[str, ...] = ()
 
@@ -45,15 +47,26 @@ MINICPMV_DIR = HOME / "models" / "minicpmv-4.5"
 EXPERIMENT_SPECS: dict[str, ExperimentSpec] = {
     "exp1_ocr_ner_gliner2": ExperimentSpec(
         experiment_id="exp1_ocr_ner_gliner2",
-        target="experiments.exp1_paddleocr_gliner2ner:Exp1PaddleOCRGLiNER2",
         description="Invoice parser: PaddleOCR + GLiNER2",
+        pipeline="ocr_ner",
+        backend="gliner2",
+        ocr_defaults={"ocr_lang": "en", "ocr_use_textline_orientation": True},
         aliases=("exp1_paddleocr_gliner2ner",),
     ),
     "exp2_ocr_ner_qwen3": ExperimentSpec(
         experiment_id="exp2_ocr_ner_qwen3",
-        target="experiments.exp2_paddleocr_qwen3ner:Exp2PaddleOCRQwen3",
         description="Invoice parser: PaddleOCR + Qwen3 NER",
-        constructor_defaults={"llama_url": "http://localhost:8081/v1"},
+        pipeline="ocr_ner",
+        backend="llama_server",
+        backend_config={
+            "base_url": "http://localhost:8081/v1",
+            "task_type": "ner",
+            "model": "qwen3",
+            "model_path": str(QWEN3_DIR / "Qwen_Qwen3-4B-Q4_K_M.gguf"),
+            "default_port": 8081,
+            "ctx_size": 4096,
+        },
+        ocr_defaults={"ocr_lang": "en", "ocr_use_textline_orientation": True},
         runtime=RuntimeSpec(
             kind="llamacpp_server",
             port=8081,
@@ -70,9 +83,18 @@ EXPERIMENT_SPECS: dict[str, ExperimentSpec] = {
     ),
     "exp3_vlm_qwen25vl": ExperimentSpec(
         experiment_id="exp3_vlm_qwen25vl",
-        target="experiments.exp3_vlm_qwen25vl:Exp3VLMQwen25VL",
         description="Invoice parser: Qwen2.5-VL via llama.cpp",
-        constructor_defaults={"llama_url": "http://localhost:8082/v1"},
+        pipeline="vlm",
+        backend="llama_server",
+        backend_config={
+            "base_url": "http://localhost:8082/v1",
+            "task_type": "vlm",
+            "model": "qwen25vl",
+            "model_path": str(QWEN25VL_DIR / "Qwen_Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"),
+            "mmproj_path": str(QWEN25VL_DIR / "mmproj-Qwen_Qwen2.5-VL-7B-Instruct-f16.gguf"),
+            "default_port": 8082,
+            "ctx_size": 4096,
+        },
         runtime=RuntimeSpec(
             kind="llamacpp_server",
             port=8082,
@@ -93,8 +115,16 @@ EXPERIMENT_SPECS: dict[str, ExperimentSpec] = {
     ),
     "exp4_vlm_minicpmv": ExperimentSpec(
         experiment_id="exp4_vlm_minicpmv",
-        target="experiments.exp4_vlm_minicpm:Exp4VLMMiniCPMV",
         description="Invoice parser: MiniCPM-V via llama-mtmd-cli",
+        pipeline="vlm",
+        backend="llama_mtmd_cli",
+        backend_config={
+            "task_type": "vlm",
+            "mtmd_bin": "llama-mtmd-cli",
+            "model_path": str(MINICPMV_DIR / "MiniCPM-V-4_5-Q4_K_M.gguf"),
+            "mmproj_path": str(MINICPMV_DIR / "mmproj-model-f16.gguf"),
+            "debug": False,
+        },
         runtime=RuntimeSpec(
             kind="hf_assets",
             model_path=MINICPMV_DIR / "MiniCPM-V-4_5-Q4_K_M.gguf",
@@ -115,3 +145,19 @@ EXPERIMENT_ALIASES: dict[str, str] = {
     for spec in EXPERIMENT_SPECS.values()
     for alias in spec.aliases
 }
+
+
+def resolve_experiment_id(value: str) -> str:
+    if value in EXPERIMENT_ALIASES:
+        return EXPERIMENT_ALIASES[value]
+    stem = Path(value).stem
+    return EXPERIMENT_ALIASES.get(stem, value)
+
+
+def get_experiment_spec(experiment_id: str) -> ExperimentSpec:
+    canonical = resolve_experiment_id(experiment_id)
+    try:
+        return EXPERIMENT_SPECS[canonical]
+    except KeyError as exc:
+        choices = ", ".join(sorted(EXPERIMENT_SPECS))
+        raise ValueError(f"Unknown experiment '{experiment_id}'. Choose from: {choices}") from exc

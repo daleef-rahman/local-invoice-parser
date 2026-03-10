@@ -6,10 +6,8 @@ import json
 import shutil
 import subprocess
 import time
-import urllib.parse
 import urllib.request
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
 
 from experiments.catalog import ExperimentSpec, HfAssetSpec, RuntimeSpec
 
@@ -111,45 +109,19 @@ def _stop_process(proc: subprocess.Popen[bytes] | None) -> None:
         proc.wait()
 
 
-@dataclass
-class PreparedExperiment:
-    constructor_kwargs: dict[str, object]
-
-
-class managed_experiment_runtime(AbstractContextManager[PreparedExperiment]):
-    def __init__(self, spec: ExperimentSpec, constructor_overrides: dict | None = None):
+class managed_experiment_runtime(AbstractContextManager[None]):
+    def __init__(self, spec: ExperimentSpec):
         self.spec = spec
-        self.constructor_overrides = constructor_overrides or {}
         self._proc: subprocess.Popen[bytes] | None = None
         self._owns_process = False
 
-    def __enter__(self) -> PreparedExperiment:
+    def __enter__(self) -> None:
         runtime = self.spec.runtime
-        constructor_kwargs = dict(self.spec.constructor_defaults)
-        constructor_kwargs.update(self.constructor_overrides)
-        uses_external_server = False
-
         if runtime.kind == "llamacpp_server":
-            url_key = "llama_url" if "llama_url" in constructor_kwargs else "base_url"
-            runtime_url = constructor_kwargs.get(url_key)
-            if isinstance(runtime_url, str):
-                parsed = urllib.parse.urlparse(runtime_url)
-                requested_port = parsed.port
-                default_port = runtime.port
-                if requested_port is not None and default_port is not None and requested_port != default_port:
-                    uses_external_server = True
-
-        if runtime.kind == "llamacpp_server" and not uses_external_server:
             self._proc, self._owns_process = _start_llamacpp_server(runtime)
-        elif runtime.kind == "hf_assets" and runtime.hf_assets is not None and "model_path" not in constructor_kwargs:
+        elif runtime.kind == "hf_assets" and runtime.hf_assets is not None:
             _ensure_hf_assets(runtime.hf_assets)
-
-        if runtime.model_path is not None and "model_path" not in constructor_kwargs:
-            constructor_kwargs["model_path"] = str(runtime.model_path)
-        if runtime.mmproj_path is not None and "mmproj_path" not in constructor_kwargs:
-            constructor_kwargs["mmproj_path"] = str(runtime.mmproj_path)
-
-        return PreparedExperiment(constructor_kwargs=constructor_kwargs)
+        return None
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self._owns_process:

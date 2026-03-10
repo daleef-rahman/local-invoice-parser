@@ -1,16 +1,13 @@
-from models.vlm.common import VLMBackend
+from models.modelbackend import ModelBackend
 
-BACKENDS = ["llamacpp", "minicpmv", "qwen25vl"]
+BACKENDS = ["llama_server", "llama_mtmd_cli"]
 
 
 def get_backend(name: str):
-    if name == "llamacpp":
-        from models.vlm.llamacpp import LlamaCppVLMBackend
-        return LlamaCppVLMBackend
-    if name == "minicpmv":
-        from models.vlm.minicpmv import MiniCPMVBackend
-        return MiniCPMVBackend
-    if name == "qwen25vl":
-        from models.vlm.qwen25vl import Qwen25VLBackend
-        return Qwen25VLBackend
+    if name == "llama_server":
+        from models.vlm.llama_server import LlamaServerVLMBackend
+        return LlamaServerVLMBackend
+    if name == "llama_mtmd_cli":
+        from models.vlm.llama_mtmd_cli import LlamaMtmdCliVLMBackend
+        return LlamaMtmdCliVLMBackend
     raise ValueError(f"Unknown VLM backend: {name!r}. Choose from: {BACKENDS}")

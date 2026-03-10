@@ -1,5 +1,15 @@
-"""Experiment package."""
+"""Experiment metadata package."""
 
-from experiments.registry import EXPERIMENTS, create_experiment, parse_constructor_kwargs, resolve_experiment_id
+from experiments.catalog import (
+    EXPERIMENT_ALIASES,
+    EXPERIMENT_SPECS,
+    get_experiment_spec,
+    resolve_experiment_id,
+)
 
-__all__ = ["EXPERIMENTS", "create_experiment", "parse_constructor_kwargs", "resolve_experiment_id"]
+__all__ = [
+    "EXPERIMENT_ALIASES",
+    "EXPERIMENT_SPECS",
+    "get_experiment_spec",
+    "resolve_experiment_id",
+]

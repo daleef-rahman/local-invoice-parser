@@ -1,19 +1,20 @@
 """
-Base class for NER (Named Entity Recognition) backends.
-A NERBackend takes raw OCR text and returns structured invoice data.
-Example backends: GLiNER2, Qwen3 via llama.cpp.
+Shared base class for invoice extraction backends.
+
+A ModelBackend takes a string input and returns structured invoice data.
+The input may be OCR text, an image path, or another backend-specific string payload.
 """
 
 from schema import AdvancedReceiptData
 
 
-class NERBackend:
+class ModelBackend:
     """
     Base class for invoice extraction backends.
     Subclasses must implement extract().
     """
 
-    def extract(self, text: str) -> AdvancedReceiptData:
+    def extract(self, input_data: str) -> AdvancedReceiptData:
         raise NotImplementedError
 
     def close(self):

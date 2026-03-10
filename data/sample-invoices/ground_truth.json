@@ -596,5 +596,408 @@
         }
       }
     }
+    ,
+    {
+      "image_id": "6",
+      "image_path": "images/6.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 19.69
+          },
+          "taxAmount": {
+            "value": null
+          },
+          "dateTime": {
+            "value": "2015-01-14T09:45:00"
+          },
+          "merchantName": {
+            "value": null
+          },
+          "merchantAddress": {
+            "value": null
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": null
+          },
+          "merchantCity": {
+            "value": null
+          },
+          "merchantPostalCode": {
+            "value": null
+          },
+          "merchantPhone": {
+            "value": null
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "76530"
+          },
+          "paidAmount": {
+            "value": null
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Premium Gas"
+              },
+              "quantity": {
+                "value": 15.278
+              },
+              "unitPrice": {
+                "value": 1.289
+              },
+              "totalPrice": {
+                "value": 19.69
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "7",
+      "image_path": "images/7.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 8.61
+          },
+          "taxAmount": {
+            "value": 0.62
+          },
+          "dateTime": {
+            "value": "2002-12-26T18:41:00"
+          },
+          "merchantName": {
+            "value": "Fanzz"
+          },
+          "merchantAddress": {
+            "value": "2024 Westminster Mall, Westminster, CA 92683"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "California"
+          },
+          "merchantCity": {
+            "value": "Westminster"
+          },
+          "merchantPostalCode": {
+            "value": "92683"
+          },
+          "merchantPhone": {
+            "value": "(714) 898-4036"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "21854"
+          },
+          "paidAmount": {
+            "value": 8.61
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Yellow Headband NBA"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 7.99
+              },
+              "totalPrice": {
+                "value": 7.99
+              },
+              "productCode": {
+                "value": "53165"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "9",
+      "image_path": "images/9.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 18.97
+          },
+          "taxAmount": {
+            "value": null
+          },
+          "dateTime": {
+            "value": null
+          },
+          "merchantName": {
+            "value": "Wherehouse"
+          },
+          "merchantAddress": {
+            "value": "17542 Hawthorne Blvd, Torrance CA 90504-3110"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "California"
+          },
+          "merchantCity": {
+            "value": "Torrance"
+          },
+          "merchantPostalCode": {
+            "value": "90504-3110"
+          },
+          "merchantPhone": {
+            "value": "310-371-0994"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": null
+          },
+          "paidAmount": {
+            "value": null
+          },
+          "discountAmount": {
+            "value": 2.99
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Great Hits-Naughty's Nic"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 7.99
+              },
+              "totalPrice": {
+                "value": 7.99
+              },
+              "productCode": {
+                "value": "00000000000400092359794"
+              }
+            },
+            {
+              "productName": {
+                "value": "Mega Jammin Oldies 1 129"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 4.99
+              },
+              "totalPrice": {
+                "value": 4.99
+              },
+              "productCode": {
+                "value": "00000000000400029966439"
+              }
+            },
+            {
+              "productName": {
+                "value": "World Wrestling Fed. 079"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 5.99
+              },
+              "totalPrice": {
+                "value": 5.99
+              },
+              "productCode": {
+                "value": "00000000000400049281314"
+              }
+            },
+            {
+              "productName": {
+                "value": "All That 119"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 2.99
+              },
+              "totalPrice": {
+                "value": 0.0
+              },
+              "productCode": {
+                "value": "00000000000400066561024"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "image_id": "8",
+      "image_path": "images/8.png",
+      "ground_truth": {
+        "data": {
+          "totalAmount": {
+            "value": 9.9
+          },
+          "taxAmount": {
+            "value": 0.0
+          },
+          "dateTime": {
+            "value": "2016-10-02T15:39:00"
+          },
+          "merchantName": {
+            "value": "Tous Les Jours"
+          },
+          "merchantAddress": {
+            "value": "112 Linwood Plaza #130, Fort Lee, NJ"
+          },
+          "currencyCode": {
+            "value": "USD"
+          },
+          "merchantCountry": {
+            "value": "United States"
+          },
+          "merchantState": {
+            "value": "New Jersey"
+          },
+          "merchantCity": {
+            "value": "Fort Lee"
+          },
+          "merchantPostalCode": {
+            "value": null
+          },
+          "merchantPhone": {
+            "value": "201-461-2070"
+          },
+          "merchantEmail": {
+            "value": null
+          },
+          "invoiceReceiptNumber": {
+            "value": "01-03293094"
+          },
+          "paidAmount": {
+            "value": 9.9
+          },
+          "discountAmount": {
+            "value": null
+          },
+          "serviceCharge": {
+            "value": null
+          },
+          "productLineItems": [
+            {
+              "productName": {
+                "value": "Cappuccino (S)"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 3.0
+              },
+              "totalPrice": {
+                "value": 3.0
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Cafe Americano (L)"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 2.95
+              },
+              "totalPrice": {
+                "value": 2.95
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Redbean Bread"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 1.95
+              },
+              "totalPrice": {
+                "value": 1.95
+              },
+              "productCode": {
+                "value": null
+              }
+            },
+            {
+              "productName": {
+                "value": "Sweet Corn Cream Donut"
+              },
+              "quantity": {
+                "value": 1
+              },
+              "unitPrice": {
+                "value": 2.0
+              },
+              "totalPrice": {
+                "value": 2.0
+              },
+              "productCode": {
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    }
   ]
 }
