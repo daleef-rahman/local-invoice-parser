@@ -49,6 +49,8 @@ from datasets import load_dataset
 from PIL import Image
 from experiments import create_experiment, parse_constructor_kwargs, resolve_experiment_id
 from experiments.base import BaseExperiment
+from experiments.catalog import EXPERIMENT_SPECS
+from runtime import managed_experiment_runtime
 
 SCALAR_FIELDS = [
     "totalAmount",
@@ -374,12 +376,13 @@ def evaluate(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate invoice extraction experiments")
     parser.add_argument("--mode", choices=["simple", "full"], required=True, help="Evaluation mode")
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument(
         "--experiment",
         type=str,
-        required=True,
         help="Experiment id from registry (for example: exp1_ocr_ner_gliner2)",
     )
+    selection.add_argument("--all", action="store_true", help="Run all experiments in the catalog")
     parser.add_argument(
         "--experiment-param",
         action="append",
@@ -398,23 +401,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    experiment_id = resolve_experiment_id(args.experiment)
-    experiment_kwargs = parse_constructor_kwargs(args.experiment_param)
-    experiment = create_experiment(experiment_id, **experiment_kwargs)
-
-    result = evaluate(
-        mode=args.mode,
-        experiment_name=experiment_id,
-        experiment=experiment,
-        sample_dir=args.sample_dir,
-        sample_ground_truth=args.sample_ground_truth,
-        dataset_name=args.dataset,
-        split=args.split,
-        limit=args.limit,
-    )
-
+def _print_summary(result: dict[str, Any]) -> None:
     metrics = result["metrics"]
     print("\n=== Evaluation Summary ===")
     print(f"Mode: {result['mode']}")
@@ -431,14 +418,96 @@ def main() -> None:
     for field, score in metrics["per_field_accuracy"].items():
         print(f"  {field:>20}: {score:.4f}")
 
-    output_path = args.output
-    if output_path is None:
-        repo_root = Path(__file__).resolve().parent.parent
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = repo_root / "reports" / f"{experiment_id}_{args.mode}_{timestamp}.json"
 
+def _default_output_path(selection_name: str, mode: str) -> Path:
+    repo_root = Path(__file__).resolve().parent.parent
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return repo_root / "reports" / f"{selection_name}_{mode}_{timestamp}.json"
+
+
+def _run_experiment(
+    *,
+    mode: str,
+    experiment_id: str,
+    experiment_kwargs: dict[str, Any],
+    sample_dir: Path,
+    sample_ground_truth: Path,
+    dataset_name: str,
+    split: str,
+    limit: int | None,
+) -> dict[str, Any]:
+    spec = EXPERIMENT_SPECS[experiment_id]
+    print(f"\n=== Running {experiment_id} ===")
+    with managed_experiment_runtime(spec, experiment_kwargs) as prepared:
+        experiment = create_experiment(experiment_id, **prepared.constructor_kwargs)
+        return evaluate(
+            mode=mode,
+            experiment_name=experiment_id,
+            experiment=experiment,
+            sample_dir=sample_dir,
+            sample_ground_truth=sample_ground_truth,
+            dataset_name=dataset_name,
+            split=split,
+            limit=limit,
+        )
+
+
+def main() -> None:
+    args = parse_args()
+    experiment_kwargs = parse_constructor_kwargs(args.experiment_param)
+    experiment_ids = (
+        [resolve_experiment_id(args.experiment)]
+        if args.experiment
+        else sorted(EXPERIMENT_SPECS.keys())
+    )
+
+    results = []
+    for experiment_id in experiment_ids:
+        result = _run_experiment(
+            mode=args.mode,
+            experiment_id=experiment_id,
+            experiment_kwargs=experiment_kwargs,
+            sample_dir=args.sample_dir,
+            sample_ground_truth=args.sample_ground_truth,
+            dataset_name=args.dataset,
+            split=args.split,
+            limit=args.limit,
+        )
+        results.append(result)
+        _print_summary(result)
+
+    if len(results) == 1:
+        payload: dict[str, Any] = results[0]
+        selection_name = experiment_ids[0]
+    else:
+        payload = {
+            "mode": args.mode,
+            "experiments": results,
+            "summary": [
+                {
+                    "experiment": result["experiment"],
+                    "num_examples": result["num_examples"],
+                    "scalar_accuracy": result["metrics"]["scalar_accuracy"],
+                    "line_item_accuracy": result["metrics"]["line_item_accuracy"],
+                    "overall_accuracy": result["metrics"]["overall_accuracy"],
+                    "avg_wall_per_invoice": result["timing_s"]["avg_wall_per_invoice"],
+                }
+                for result in results
+            ],
+        }
+        selection_name = "all_experiments"
+        print("\n=== Combined Summary ===")
+        for result in results:
+            metrics = result["metrics"]
+            print(
+                f"{result['experiment']}: overall={metrics['overall_accuracy']:.4f}, "
+                f"scalar={metrics['scalar_accuracy']:.4f}, "
+                f"line_item={metrics['line_item_accuracy'] if metrics['line_item_accuracy'] is not None else 'n/a'}"
+            )
+
+    output_path = args.output or _default_output_path(selection_name, args.mode)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(result, indent=2))
+    output_path.write_text(json.dumps(payload, indent=2))
     print(f"\nSaved report to {output_path}")
 
 

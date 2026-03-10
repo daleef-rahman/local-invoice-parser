@@ -33,7 +33,9 @@ Evaluated on 5 sample invoices (`data/sample-invoices/`).
 uv sync
 ```
 
-Qwen3/Exp3 require a running [llama.cpp](https://github.com/ggerganov/llama.cpp) server. Use the provided scripts to download models and start servers:
+Qwen3/Exp3 use [llama.cpp](https://github.com/ggerganov/llama.cpp) under the hood. `eval.py` now manages the runtime for catalog-backed experiments: it downloads missing model assets with `hf`, starts `llama-server` once per experiment, evaluates all samples, and stops the server in `finally`.
+
+Manual scripts are still available for debugging:
 
 ```bash
 # Exp 2 — Qwen3 NER (default port 8080)
@@ -73,9 +75,10 @@ uv run python local-invoice-parser/eval.py --mode simple --experiment exp1_ocr_n
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp3_vlm_qwen25vl
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp4_vlm_minicpmv
+uv run python local-invoice-parser/eval.py --mode simple --all
 
-# pass constructor params when needed
-uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3 --experiment-param llama_url=http://localhost:8080/v1
+# pass constructor params when needed; overriding llama_url opts into using that server instead
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3 --experiment-param llama_url=http://localhost:8090/v1
 ```
 
 Reports are saved to `reports/`.
