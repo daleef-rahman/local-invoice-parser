@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
 from experiments.catalog import ExperimentSpec, get_experiment_spec
 from models.ocr import extract_text as extract_ocr_text
 from models.ocr import load_backend as load_ocr_backend
@@ -40,15 +42,58 @@ class PreparedPipeline:
 class OcrNerConfig:
     ocr_lang: str = "en"
     ocr_use_textline_orientation: bool = True
-    ocr_max_image_side: int | None = 1600
+    image_max_side: int | None = 1600
     ner_backend: str = "gliner2"
     backend_config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class VlmConfig:
+    image_max_side: int | None = 1600
     vlm_backend: str = "llama_server"
     backend_config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PreparedImage:
+    path: str
+    temp_path: Path | None
+    original_size: tuple[int, int]
+    processed_size: tuple[int, int]
+
+
+def _prepare_image(image_path: str, *, max_image_side: int | None) -> PreparedImage:
+    src_path = Path(image_path)
+    with Image.open(src_path) as img:
+        original_size = img.size
+
+        if max_image_side is None or max(original_size) <= max_image_side:
+            return PreparedImage(
+                path=image_path,
+                temp_path=None,
+                original_size=original_size,
+                processed_size=original_size,
+            )
+
+        resized = img.convert("RGB")
+        resized.thumbnail((max_image_side, max_image_side), Image.LANCZOS)
+        processed_size = resized.size
+
+        tmp = tempfile.NamedTemporaryFile(
+            prefix="pipeline_input_",
+            suffix=src_path.suffix or ".png",
+            delete=False,
+        )
+        tmp_path = Path(tmp.name)
+        tmp.close()
+        resized.save(tmp_path)
+
+    return PreparedImage(
+        path=str(tmp_path),
+        temp_path=tmp_path,
+        original_size=original_size,
+        processed_size=processed_size,
+    )
 
 
 def load_ocr(cfg: OcrNerConfig) -> PaddleOCR:
@@ -73,7 +118,7 @@ def run_ocr_ner_pipeline(
     cfg: OcrNerConfig,
     ocr: PaddleOCR | None = None,
     ner: ModelBackend | None = None,
-) -> tuple[AdvancedReceiptData, list[dict[str, Any]], str, dict[str, float]]:
+) -> tuple[AdvancedReceiptData, list[dict[str, Any]], str, dict[str, Any]]:
     owns_models = ocr is None or ner is None
     if owns_models:
         print("Loading models...", file=sys.stderr)
@@ -82,63 +127,91 @@ def run_ocr_ner_pipeline(
         if ner is None:
             ner = load_ner(cfg)
 
-    print(f"Extracting text from: {image_path}", file=sys.stderr)
     t0 = time.perf_counter()
-    text, ocr_regions = extract_ocr_text(
-        ocr,
-        image_path,
-        max_image_side=cfg.ocr_max_image_side,
-    )
-    t_ocr = time.perf_counter()
-    if ocr_regions and "meta" in ocr_regions[0]:
-        meta = ocr_regions[0]["meta"]
-        print(
-            f"  -> resized image for OCR: {tuple(meta['source_size'])} -> {tuple(meta['ocr_input_size'])}",
-            file=sys.stderr,
+    prepared_image = _prepare_image(image_path, max_image_side=cfg.image_max_side)
+    t_preprocess = time.perf_counter()
+    try:
+        print(f"Extracting text from: {prepared_image.path}", file=sys.stderr)
+        text, ocr_regions = extract_ocr_text(
+            ocr,
+            prepared_image.path,
         )
-        ocr_regions = ocr_regions[1:]
-    print(f"  -> {len(ocr_regions)} text regions, {len(text)} chars", file=sys.stderr)
+        t_ocr = time.perf_counter()
+        if prepared_image.original_size != prepared_image.processed_size:
+            print(
+                f"  -> resized pipeline input: {prepared_image.original_size} -> {prepared_image.processed_size}",
+                file=sys.stderr,
+            )
+        print(f"  -> {len(ocr_regions)} text regions, {len(text)} chars", file=sys.stderr)
 
-    print(f"Running structured extraction ({cfg.ner_backend})...", file=sys.stderr)
-    receipt = ner.extract(text)
-    t_ner = time.perf_counter()
-    print(f"  -> {len(receipt.productLineItems)} line items found", file=sys.stderr)
+        print(f"Running structured extraction ({cfg.ner_backend})...", file=sys.stderr)
+        receipt = ner.extract(text)
+        t_ner = time.perf_counter()
+        print(f"  -> {len(receipt.productLineItems)} line items found", file=sys.stderr)
+    finally:
+        if prepared_image.temp_path is not None:
+            prepared_image.temp_path.unlink(missing_ok=True)
 
     if owns_models:
         ner.close()
 
     timings = {
-        "ocr_s": round(t_ocr - t0, 3),
+        "preprocess_s": round(t_preprocess - t0, 3),
+        "ocr_s": round(t_ocr - t_preprocess, 3),
         "ner_s": round(t_ner - t_ocr, 3),
         "total_s": round(t_ner - t0, 3),
     }
-    return receipt, ocr_regions, text, timings
+    artifacts = {
+        "image_preprocessing": {
+            "source_size": list(prepared_image.original_size),
+            "model_input_size": list(prepared_image.processed_size),
+        }
+    }
+    return receipt, ocr_regions, text, timings, artifacts
 
 
 def run_vlm_pipeline(
     image_path: str,
     cfg: VlmConfig,
     vlm: ModelBackend | None = None,
-) -> tuple[AdvancedReceiptData, dict[str, float]]:
+) -> tuple[AdvancedReceiptData, dict[str, Any], dict[str, Any]]:
     owns_model = vlm is None
     if owns_model:
         print(f"Loading {cfg.vlm_backend} model...", file=sys.stderr)
         vlm = load_vlm(cfg)
 
-    print(f"Extracting invoice data from: {image_path}", file=sys.stderr)
     t0 = time.perf_counter()
-    receipt = vlm.extract(image_path)
-    elapsed = round(time.perf_counter() - t0, 3)
-    print(f"  -> {len(receipt.productLineItems)} line items found", file=sys.stderr)
+    prepared_image = _prepare_image(image_path, max_image_side=cfg.image_max_side)
+    t_preprocess = time.perf_counter()
+    try:
+        print(f"Extracting invoice data from: {prepared_image.path}", file=sys.stderr)
+        receipt = vlm.extract(prepared_image.path)
+        t_vlm = time.perf_counter()
+        if prepared_image.original_size != prepared_image.processed_size:
+            print(
+                f"  -> resized pipeline input: {prepared_image.original_size} -> {prepared_image.processed_size}",
+                file=sys.stderr,
+            )
+        print(f"  -> {len(receipt.productLineItems)} line items found", file=sys.stderr)
+    finally:
+        if prepared_image.temp_path is not None:
+            prepared_image.temp_path.unlink(missing_ok=True)
 
     if owns_model:
         vlm.close()
 
     timings = {
-        "vlm_s": elapsed,
-        "total_s": elapsed,
+        "preprocess_s": round(t_preprocess - t0, 3),
+        "vlm_s": round(t_vlm - t_preprocess, 3),
+        "total_s": round(t_vlm - t0, 3),
     }
-    return receipt, timings
+    artifacts = {
+        "image_preprocessing": {
+            "source_size": list(prepared_image.original_size),
+            "model_input_size": list(prepared_image.processed_size),
+        }
+    }
+    return receipt, timings, artifacts
 
 
 def print_results(result: PipelineResult) -> None:
@@ -146,7 +219,7 @@ def print_results(result: PipelineResult) -> None:
     timings = result.timings
 
     p("\n--- Timings ---")
-    for key in ("ocr_s", "ner_s", "vlm_s", "total_s"):
+    for key in ("preprocess_s", "ocr_s", "ner_s", "vlm_s", "total_s"):
         if key in timings:
             p(f"  {key.removesuffix('_s'):<5}: {timings[key]:.3f}s")
 
@@ -186,10 +259,12 @@ def prepare_pipeline(experiment_id: str) -> PreparedPipeline:
     spec = get_experiment_spec(experiment_id)
 
     if spec.pipeline == "ocr_ner":
+        ocr_defaults = dict(spec.ocr_defaults)
         ocr_cfg = OcrNerConfig(
             ner_backend=spec.backend,
             backend_config=dict(spec.backend_config),
-            **spec.ocr_defaults,
+            image_max_side=ocr_defaults.pop("ocr_max_image_side", 1600),
+            **ocr_defaults,
         )
         return PreparedPipeline(
             spec=spec,
@@ -214,7 +289,7 @@ def prepare_pipeline(experiment_id: str) -> PreparedPipeline:
 
 def run_pipeline(prepared: PreparedPipeline, image_path: str) -> PipelineResult:
     if prepared.spec.pipeline == "ocr_ner":
-        receipt, ocr_regions, text, timings = run_ocr_ner_pipeline(
+        receipt, ocr_regions, text, timings, artifacts = run_ocr_ner_pipeline(
             image_path,
             prepared.ocr_cfg,
             ocr=prepared.ocr,
@@ -223,11 +298,11 @@ def run_pipeline(prepared: PreparedPipeline, image_path: str) -> PipelineResult:
         return PipelineResult(
             receipt=receipt,
             timings=timings,
-            artifacts={"ocr_regions": ocr_regions, "text": text},
+            artifacts={**artifacts, "ocr_regions": ocr_regions, "text": text},
         )
 
     if prepared.spec.pipeline == "vlm":
-        receipt, timings = run_vlm_pipeline(
+        receipt, timings, artifacts = run_vlm_pipeline(
             image_path,
             prepared.vlm_cfg,
             vlm=prepared.vlm,
@@ -235,7 +310,7 @@ def run_pipeline(prepared: PreparedPipeline, image_path: str) -> PipelineResult:
         return PipelineResult(
             receipt=receipt,
             timings=timings,
-            artifacts={},
+            artifacts=artifacts,
         )
 
     raise ValueError(f"Unsupported pipeline: {prepared.spec.pipeline}")

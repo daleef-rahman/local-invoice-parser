@@ -15,9 +15,10 @@ The output schema is defined in [schema.py](/Users/daleefrahman/Documents/startu
 
 ## TL;DR
 
-- **Direct VLM extraction is currently ahead on quality in this repo.** `Qwen2.5-VL-7B` produced the best overall score in the current run.
+- **Direct VLM extraction is currently ahead on quality in this repo.** In the latest reports folder outputs, `Qwen2.5-VL-3B` is the current top scorer overall.
 - **OCR + GLiNER2 is the fastest setup in the current repo.** It gives the lowest average time per invoice, which makes it a useful baseline for local CPU-first deployments.
-- **Local CPU-first experiments are viable for small evaluation sets.** On this machine, the implemented experiments land in roughly the 6-18 second range per invoice.
+- **The quality/speed tradeoff is now wider than before.** `SmolVLM-256M` is extremely fast at about `1.1s` per invoice, but accuracy is currently too low to be useful.
+- **Local CPU-first experiments are viable for small evaluation sets.** On this machine, the implemented experiments land in roughly the `1-16` second range per invoice.
 
 ## The test machine
 
@@ -36,17 +37,21 @@ Everything in this repo is framed around local execution on a developer laptop, 
 
 ## The models and why they were chosen
 
-The current catalog in [catalog.py](/Users/daleefrahman/Documents/startup-experiments/local-invoice-parser/local-invoice-parser/experiments/catalog.py) defines four active local experiments plus one cloud baseline reference in the README table.
+The current catalog in [catalog.py](/Users/daleefrahman/Documents/startup-experiments/local-invoice-parser/local-invoice-parser/experiments/catalog.py) defines eight active local experiments plus one cloud baseline reference in the README table.
 
 **GLiNER2 -- the lightweight structured extraction baseline.** This is the simplest local NER-style baseline in the repo. It gives a useful floor for what a specialized extraction model can do after OCR, without requiring `llama.cpp` serving infrastructure.
 
-**Qwen3-4B -- the stronger local text model for OCR + NER.** Once OCR text has been extracted, the next question is whether a small-but-capable instruction model can outperform a lighter NER baseline on structured field extraction. Qwen3-4B is a reasonable candidate because it is small enough to run locally in GGUF form while still being strong enough to test whether "OCR first, then LLM" remains competitive.
+**Qwen3-4B -- the stronger local text model for OCR + NER.** Once OCR text has been extracted, the next question is whether a small-but-capable instruction model can outperform a lighter NER baseline on structured field extraction. Qwen3-4B is a reasonable candidate because it is small enough to run locally, and it has also shown up as one of the strongest small models in this benchmark [LocalLLaMA Round 2 benchmark](https://www.reddit.com/r/LocalLLaMA/comments/1r4ie8z/i_tested_21_small_llms_on_toolcalling_judgment/), where `qwen3:4b` tied for the top score.
 
-**Qwen2.5-VL-7B -- the direct image-to-JSON VLM candidate.** This experiment tests whether skipping OCR entirely gives better invoice understanding, especially for layout-sensitive fields and line items. It is larger than the text-only models in the repo, but still practical enough to run locally through `llama-server`.
+**Qwen2.5-VL-7B -- the direct image-to-JSON VLM candidate.** This experiment tests whether skipping OCR entirely gives better invoice understanding. It is larger than the text-only models in the repo, but still practical enough to run locally through `llama-server`. The Qwen VL family ranks near the top of the [OCRBench v2 leaderboard](https://huggingface.co/spaces/ling99/OCRBench-v2-leaderboard)
 
-**MiniCPM-V-4.5 -- an alternative local VLM path.** This serves as a second multimodal comparison point using a different model family and a different runtime path (`llama-mtmd-cli`). It helps separate "VLMs are better" from "one particular VLM happened to be better."
+**Qwen2.5-VL-3B and Qwen3-VL-2B -- smaller direct VLM variants.** These extend the main Qwen multimodal path downward in size to test whether a smaller local VLM can preserve most of the quality while cutting latency.
 
-**Gemini 2.5 Flash -- a cloud baseline, not the target deployment.** The README keeps this as a reference point because it is useful to compare local approaches against a strong hosted multimodal model, even if the broader motivation of the project is to avoid relying on hosted APIs in production.
+**MiniCPM-V-4.5 -- an alternative local VLM path.** This serves as a second multimodal comparison point using a different model family
+
+**LFM2.5-VL-1.6B and SmolVLM-256M -- aggressive small-model probes.** These are included to test how far the repo can push fully local CPU inference toward lighter multimodal models, even if quality drops sharply.
+
+**Gemini 2.5 Flash -- a cloud baseline, not the target deployment.** Used as a reference point for benchmarking local approaches against a strong closed-source multimodal model.
 
 ## Experiments
 
@@ -56,25 +61,35 @@ The current catalog in [catalog.py](/Users/daleefrahman/Documents/startup-experi
 | 2 | `exp2_ocr_ner_qwen3` | OCR + NER | PaddleOCR + Qwen3-4B via `llama-server` |
 | 3 | `exp3_vlm_qwen25vl` | VLM | Qwen2.5-VL-7B via `llama-server` |
 | 4 | `exp4_vlm_minicpmv` | VLM | MiniCPM-V-4.5 via `llama-mtmd-cli` |
+| 5 | `exp5_vlm_qwen25vl3b` | VLM | Qwen2.5-VL-3B via `llama-server` |
+| 6 | `exp6_vlm_qwen3vl2b` | VLM | Qwen3-VL-2B via `llama-server` |
+| 7 | `exp7_vlm_lfm25vl16b` | VLM | LFM2.5-VL-1.6B via `llama-mtmd-cli` |
+| 8 | `exp8_vlm_smolvlm256m` | VLM | SmolVLM-256M via `llama-mtmd-cli` |
 | B1 | `baseline_vlm_gemini25flash.py` | VLM baseline | Gemini-2.5-Flash |
 
 ## Results
 
-The current results come from 9 sample invoices in `data/sample-invoices/`, evaluated with partial credit scoring and saved in [all_experiments_simple_20260311_025303.json](/Users/daleefrahman/Documents/startup-experiments/local-invoice-parser/reports/all_experiments_simple_20260311_025303.json).
+The current results come from 9 sample invoices in `data/sample-invoices/`, evaluated with partial credit scoring. The first four rows are from the aggregate run in [all_experiments_simple_20260311_053501.json](/Users/daleefrahman/Documents/startup-experiments/local-invoice-parser/reports/all_experiments_simple_20260311_053501.json), and rows `5` through `8` come from the latest standalone report files in `reports/`.
 
 | # | Experiment | Avg time/invoice | Scalar acc | Line-item acc | Overall acc |
 |---|---|---:|---:|---:|---:|
-| 1 | PaddleOCR + GLiNER2 | 6.1s | 0.5278 | 0.4121 | 0.4660 |
-| 2 | PaddleOCR + Qwen3-4B | 16.8s | 0.6250 | 0.4357 | 0.5127 |
-| 3 | Qwen2.5-VL-7B | 15.3s | 0.6389 | 0.6233 | 0.6310 |
-| 4 | MiniCPM-V-4.5 | 17.8s | 0.6389 | 0.5355 | 0.5853 |
+| 1 | PaddleOCR + GLiNER2 | 5.8s | 0.5208 | 0.4424 | 0.4790 |
+| 2 | PaddleOCR + Qwen3-4B | 12.1s | 0.6250 | 0.4357 | 0.5127 |
+| 3 | Qwen2.5-VL-7B | 13.9s | 0.6389 | 0.6233 | 0.6310 |
+| 4 | MiniCPM-V-4.5 | 16.4s | 0.6389 | 0.5355 | 0.5853 |
+| 5 | Qwen2.5-VL-3B | 5.5s | 0.6667 | 0.6536 | 0.6602 |
+| 6 | Qwen3-VL-2B | 5.6s | 0.6493 | 0.5167 | 0.5816 |
+| 7 | LFM2.5-VL-1.6B | 3.9s | 0.5035 | 0.4562 | 0.4786 |
+| 8 | SmolVLM-256M | 1.1s | 0.0451 | 0.0000 | 0.0229 |
 
 Current read:
 
-- `Qwen2.5-VL-7B` is the best overall performer in this run.
-- `MiniCPM-V-4.5` is slightly behind on overall score, but still ahead of both OCR-based pipelines.
-- `Qwen3-4B` improves meaningfully over `GLiNER2` in the OCR + NER setup, suggesting the OCR-first path still has room to improve with better text-side models.
-- The biggest gap is on line-item extraction, where the VLM setups currently look stronger than OCR + NER.
+- `Qwen2.5-VL-3B` is the strongest result currently recorded in `reports/`, beating the larger `Qwen2.5-VL-7B` aggregate run on both overall and line-item accuracy while also running much faster.
+- `Qwen2.5-VL-7B` and `Qwen2.5-VL-3B` are the strongest line-item extractors in the current set, with the 3B variant now leading overall.
+- `GLiNER2` remains the fastest credible OCR baseline, while `Qwen3-4B` improves OCR-first quality at roughly double the latency.
+- `Qwen3-VL-2B` is competitive on scalar fields, but its latest run includes one hard parse failure on invoice `1`, which drags down the overall score.
+- `LFM2.5-VL-1.6B` is interesting on speed, but not yet strong enough to displace the OCR baseline on quality.
+- `SmolVLM-256M` is only useful as a speed floor at the moment; its extraction quality is effectively non-viable for this task.
 
 ## Setup
 
@@ -112,6 +127,10 @@ uv run python local-invoice-parser/eval.py --mode simple --experiment exp1_ocr_n
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp2_ocr_ner_qwen3
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp3_vlm_qwen25vl
 uv run python local-invoice-parser/eval.py --mode simple --experiment exp4_vlm_minicpmv
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp5_vlm_qwen25vl3b
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp6_vlm_qwen3vl2b
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp7_vlm_lfm25vl16b
+uv run python local-invoice-parser/eval.py --mode simple --experiment exp8_vlm_smolvlm256m
 uv run python local-invoice-parser/eval.py --mode simple --all
 ```
 

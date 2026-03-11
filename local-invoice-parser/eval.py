@@ -339,6 +339,19 @@ def _score_example(pred: dict[str, Any], truth: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _zero_score_example(truth: dict[str, Any]) -> dict[str, Any]:
+    _, li_total = _score_line_items([], truth.get("productLineItems") or [])
+    return {
+        "scalar_score": 0.0,
+        "scalar_total": float(len(SCALAR_FIELDS)),
+        "line_item_score": 0.0,
+        "line_item_total": li_total,
+        "total_score": 0.0,
+        "total_fields": float(len(SCALAR_FIELDS)) + li_total,
+        "per_field": {field: 0.0 for field in SCALAR_FIELDS},
+    }
+
+
 def _parse_json_maybe(value: Any) -> Any:
     if isinstance(value, str):
         try:
@@ -459,13 +472,19 @@ def evaluate(
     for i, ex in enumerate(examples, start=1):
         print(f"[{i}/{len(examples)}] Evaluating example {ex.example_id} ...")
         t_start = time.perf_counter()
-        run_result = run_pipeline(prepared, str(ex.image_path))
-        pred = run_result.receipt.model_dump()
-        timings = run_result.timings
+        error_message: str | None = None
+        try:
+            run_result = run_pipeline(prepared, str(ex.image_path))
+            pred = run_result.receipt.model_dump()
+            timings = run_result.timings
+            score = _score_example(pred=pred, truth=ex.ground_truth)
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {exc}"
+            print(f"  -> failed on example {ex.example_id}: {error_message}")
+            timings = {}
+            score = _zero_score_example(ex.ground_truth)
         wall_s = round(time.perf_counter() - t_start, 3)
         total_wall_s += wall_s
-
-        score = _score_example(pred=pred, truth=ex.ground_truth)
 
         for k in totals:
             totals[k] += score[k]
@@ -474,20 +493,21 @@ def evaluate(
             per_field_totals[field].total += 1
             per_field_totals[field].score += s
 
-        per_example.append(
-            {
-                "id": ex.example_id,
-                "image_path": str(ex.image_path),
-                "scalar_accuracy": round(score["scalar_score"] / max(score["scalar_total"], 1), 4),
-                "line_item_accuracy": (
-                    round(score["line_item_score"] / score["line_item_total"], 4)
-                    if score["line_item_total"] > 0
-                    else None
-                ),
-                "overall_accuracy": round(score["total_score"] / max(score["total_fields"], 1), 4),
-                "timings_s": {**timings, "wall": wall_s},
-            }
-        )
+        example_result = {
+            "id": ex.example_id,
+            "image_path": str(ex.image_path),
+            "scalar_accuracy": round(score["scalar_score"] / max(score["scalar_total"], 1), 4),
+            "line_item_accuracy": (
+                round(score["line_item_score"] / score["line_item_total"], 4)
+                if score["line_item_total"] > 0
+                else None
+            ),
+            "overall_accuracy": round(score["total_score"] / max(score["total_fields"], 1), 4),
+            "timings_s": {**timings, "wall": wall_s},
+        }
+        if error_message is not None:
+            example_result["error"] = error_message
+        per_example.append(example_result)
 
     n = len(examples)
     result = {
@@ -517,6 +537,77 @@ def evaluate(
     return result
 
 
+def _average_numeric(values: list[float | int | None]) -> float | None:
+    numeric_values = [float(value) for value in values if value is not None]
+    if not numeric_values:
+        return None
+    return round(sum(numeric_values) / len(numeric_values), 4)
+
+
+def _average_timings(values: list[float | int | None]) -> float | None:
+    averaged = _average_numeric(values)
+    if averaged is None:
+        return None
+    return round(averaged, 3)
+
+
+def _average_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    if not results:
+        raise ValueError("Cannot average zero evaluation results.")
+
+    base = results[0]
+    averaged_per_example: list[dict[str, Any]] = []
+    num_examples = len(base["per_example"])
+
+    for example_index in range(num_examples):
+        example_runs = [result["per_example"][example_index] for result in results]
+        timing_keys = example_runs[0]["timings_s"].keys()
+        averaged_per_example.append(
+            {
+                "id": example_runs[0]["id"],
+                "image_path": example_runs[0]["image_path"],
+                "scalar_accuracy": _average_numeric([run["scalar_accuracy"] for run in example_runs]),
+                "line_item_accuracy": _average_numeric([run["line_item_accuracy"] for run in example_runs]),
+                "overall_accuracy": _average_numeric([run["overall_accuracy"] for run in example_runs]),
+                "timings_s": {
+                    key: _average_timings([run["timings_s"].get(key) for run in example_runs])
+                    for key in timing_keys
+                },
+            }
+        )
+
+    metric_keys = ("scalar_accuracy", "line_item_accuracy", "overall_accuracy")
+    count_keys = base["metrics"]["counts"].keys()
+    per_field_keys = base["metrics"]["per_field_accuracy"].keys()
+    timing_keys = base["timing_s"].keys()
+
+    averaged = {
+        "mode": base["mode"],
+        "experiment": base["experiment"],
+        "num_examples": base["num_examples"],
+        "num_runs": len(results),
+        "timing_s": {
+            key: _average_timings([result["timing_s"].get(key) for result in results])
+            for key in timing_keys
+        },
+        "metrics": {
+            key: _average_numeric([result["metrics"].get(key) for result in results])
+            for key in metric_keys
+        },
+        "per_example": averaged_per_example,
+        "runs": results,
+    }
+    averaged["metrics"]["counts"] = {
+        key: _average_numeric([result["metrics"]["counts"].get(key) for result in results])
+        for key in count_keys
+    }
+    averaged["metrics"]["per_field_accuracy"] = {
+        key: _average_numeric([result["metrics"]["per_field_accuracy"].get(key) for result in results])
+        for key in per_field_keys
+    }
+    return averaged
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate invoice extraction experiments")
     parser.add_argument("--mode", choices=["simple", "full"], required=True, help="Evaluation mode")
@@ -534,9 +625,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=str, default="mychen76/invoices-and-receipts_ocr_v1")
     parser.add_argument("--split", type=str, default="test")
     parser.add_argument("--limit", type=int, default=None, help="Max examples (mainly for full mode)")
+    parser.add_argument("--runs", type=int, default=3, help="Number of times to repeat each experiment")
 
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON output file path")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.runs < 1:
+        parser.error("--runs must be at least 1")
+    return args
 
 
 def _print_summary(result: dict[str, Any]) -> None:
@@ -544,6 +639,7 @@ def _print_summary(result: dict[str, Any]) -> None:
     print("\n=== Evaluation Summary ===")
     print(f"Mode: {result['mode']}")
     print(f"Experiment: {result['experiment']}")
+    print(f"Runs: {result.get('num_runs', 1)}")
     print(f"Examples: {result['num_examples']}")
     print(f"Scalar accuracy   : {metrics['scalar_accuracy']:.4f}")
     if metrics["line_item_accuracy"] is None:
@@ -572,6 +668,7 @@ def _run_experiment(
     *,
     mode: str,
     experiment_id: str,
+    runs: int,
     sample_dir: Path,
     sample_ground_truth: Path,
     dataset_name: str,
@@ -583,16 +680,22 @@ def _run_experiment(
     with managed_experiment_runtime(spec):
         loaded = prepare_pipeline(experiment_id)
         try:
-            return evaluate(
-                mode=mode,
-                experiment_name=experiment_id,
-                prepared=loaded,
-                sample_dir=sample_dir,
-                sample_ground_truth=sample_ground_truth,
-                dataset_name=dataset_name,
-                split=split,
-                limit=limit,
-            )
+            run_results = []
+            for run_index in range(1, runs + 1):
+                print(f"\n--- Run {run_index}/{runs} for {experiment_id} ---")
+                run_results.append(
+                    evaluate(
+                        mode=mode,
+                        experiment_name=experiment_id,
+                        prepared=loaded,
+                        sample_dir=sample_dir,
+                        sample_ground_truth=sample_ground_truth,
+                        dataset_name=dataset_name,
+                        split=split,
+                        limit=limit,
+                    )
+                )
+            return _average_results(run_results)
         finally:
             close_pipeline(loaded)
 
@@ -610,6 +713,7 @@ def main() -> None:
         result = _run_experiment(
             mode=args.mode,
             experiment_id=experiment_id,
+            runs=args.runs,
             sample_dir=args.sample_dir,
             sample_ground_truth=args.sample_ground_truth,
             dataset_name=args.dataset,
@@ -629,6 +733,7 @@ def main() -> None:
             "summary": [
                 {
                     "experiment": result["experiment"],
+                    "num_runs": result.get("num_runs", 1),
                     "num_examples": result["num_examples"],
                     "scalar_accuracy": result["metrics"]["scalar_accuracy"],
                     "line_item_accuracy": result["metrics"]["line_item_accuracy"],

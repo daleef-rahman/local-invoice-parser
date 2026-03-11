@@ -40,7 +40,11 @@ class ExperimentSpec:
 HOME = Path.home()
 
 QWEN3_DIR = HOME / "models" / "qwen3-4b"
+QWEN3VL2B_DIR = HOME / "models" / "qwen3vl-2b"
+QWEN25VL3B_DIR = HOME / "models" / "qwen25vl-3b"
 QWEN25VL_DIR = HOME / "models" / "qwen25vl-7b"
+LFM25VL16B_DIR = HOME / "models" / "lfm25vl-1.6b"
+SMOLVLM256M_DIR = HOME / "models" / "smolvlm-256m"
 MINICPMV_DIR = HOME / "models" / "minicpmv-4.5"
 
 
@@ -112,6 +116,128 @@ EXPERIMENT_SPECS: dict[str, ExperimentSpec] = {
             ),
         ),
         aliases=("exp3_vlm_qwen25vl",),
+    ),
+    "exp5_vlm_qwen25vl3b": ExperimentSpec(
+        experiment_id="exp5_vlm_qwen25vl3b",
+        description="Invoice parser: Qwen2.5-VL-3B via llama.cpp",
+        pipeline="vlm",
+        backend="llama_server",
+        backend_config={
+            "base_url": "http://localhost:8083/v1",
+            "task_type": "vlm",
+            "model": "qwen25vl3b",
+            "model_path": str(QWEN25VL3B_DIR / "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"),
+            "mmproj_path": str(QWEN25VL3B_DIR / "mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf"),
+            "default_port": 8083,
+            "ctx_size": 4096,
+        },
+        runtime=RuntimeSpec(
+            kind="llamacpp_server",
+            port=8083,
+            model_path=QWEN25VL3B_DIR / "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+            mmproj_path=QWEN25VL3B_DIR / "mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf",
+            model_alias="qwen25vl3b",
+            ctx_size=4096,
+            hf_assets=HfAssetSpec(
+                repo_id="ggml-org/Qwen2.5-VL-3B-Instruct-GGUF",
+                filenames=(
+                    "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+                    "mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf",
+                ),
+                local_dir=QWEN25VL3B_DIR,
+            ),
+        ),
+        aliases=("exp5_vlm_qwen25vl3b",),
+    ),
+    "exp6_vlm_qwen3vl2b": ExperimentSpec(
+        experiment_id="exp6_vlm_qwen3vl2b",
+        description="Invoice parser: Qwen3-VL-2B via llama.cpp",
+        pipeline="vlm",
+        backend="llama_server",
+        backend_config={
+            "base_url": "http://localhost:8084/v1",
+            "task_type": "vlm",
+            "model": "qwen3vl2b",
+            "model_path": str(QWEN3VL2B_DIR / "Qwen3VL-2B-Instruct-Q4_K_M.gguf"),
+            "mmproj_path": str(QWEN3VL2B_DIR / "mmproj-Qwen3VL-2B-Instruct-F16.gguf"),
+            "default_port": 8084,
+            "ctx_size": 4096,
+        },
+        runtime=RuntimeSpec(
+            kind="llamacpp_server",
+            port=8084,
+            model_path=QWEN3VL2B_DIR / "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+            mmproj_path=QWEN3VL2B_DIR / "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+            model_alias="qwen3vl2b",
+            ctx_size=4096,
+            hf_assets=HfAssetSpec(
+                repo_id="Qwen/Qwen3-VL-2B-Instruct-GGUF",
+                filenames=(
+                    "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+                    "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+                ),
+                local_dir=QWEN3VL2B_DIR,
+            ),
+        ),
+        aliases=("exp6_vlm_qwen3vl2b",),
+    ),
+    "exp7_vlm_lfm25vl16b": ExperimentSpec(
+        experiment_id="exp7_vlm_lfm25vl16b",
+        description="Invoice parser: LFM2.5-VL-1.6B via llama.cpp",
+        pipeline="vlm",
+        backend="llama_mtmd_cli",
+        backend_config={
+            "task_type": "vlm",
+            "mtmd_bin": "llama-mtmd-cli",
+            "model_path": str(LFM25VL16B_DIR / "LFM2.5-VL-1.6b-Q4_0.gguf"),
+            "mmproj_path": str(LFM25VL16B_DIR / "mmproj-LFM2.5-VL-1.6b-Q8_0.gguf"),
+            "debug": False,
+            "ctx_size": 4096,
+        },
+        runtime=RuntimeSpec(
+            kind="hf_assets",
+            model_path=LFM25VL16B_DIR / "LFM2.5-VL-1.6b-Q4_0.gguf",
+            mmproj_path=LFM25VL16B_DIR / "mmproj-LFM2.5-VL-1.6b-Q8_0.gguf",
+            ctx_size=4096,
+            hf_assets=HfAssetSpec(
+                repo_id="LiquidAI/LFM2.5-VL-1.6B-GGUF",
+                filenames=(
+                    "LFM2.5-VL-1.6b-Q4_0.gguf",
+                    "mmproj-LFM2.5-VL-1.6b-Q8_0.gguf",
+                ),
+                local_dir=LFM25VL16B_DIR,
+            ),
+        ),
+        aliases=("exp7_vlm_lfm25vl16b",),
+    ),
+    "exp8_vlm_smolvlm256m": ExperimentSpec(
+        experiment_id="exp8_vlm_smolvlm256m",
+        description="Invoice parser: SmolVLM-256M via llama.cpp",
+        pipeline="vlm",
+        backend="llama_mtmd_cli",
+        backend_config={
+            "task_type": "vlm",
+            "mtmd_bin": "llama-mtmd-cli",
+            "model_path": str(SMOLVLM256M_DIR / "SmolVLM-256M-Instruct-Q8_0.gguf"),
+            "mmproj_path": str(SMOLVLM256M_DIR / "mmproj-SmolVLM-256M-Instruct-f16.gguf"),
+            "debug": False,
+            "ctx_size": 4096,
+        },
+        runtime=RuntimeSpec(
+            kind="hf_assets",
+            model_path=SMOLVLM256M_DIR / "SmolVLM-256M-Instruct-Q8_0.gguf",
+            mmproj_path=SMOLVLM256M_DIR / "mmproj-SmolVLM-256M-Instruct-f16.gguf",
+            ctx_size=4096,
+            hf_assets=HfAssetSpec(
+                repo_id="ggml-org/SmolVLM-256M-Instruct-GGUF",
+                filenames=(
+                    "SmolVLM-256M-Instruct-Q8_0.gguf",
+                    "mmproj-SmolVLM-256M-Instruct-f16.gguf",
+                ),
+                local_dir=SMOLVLM256M_DIR,
+            ),
+        ),
+        aliases=("exp8_vlm_smolvlm256m",),
     ),
     "exp4_vlm_minicpmv": ExperimentSpec(
         experiment_id="exp4_vlm_minicpmv",

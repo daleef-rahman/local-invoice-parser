@@ -9,8 +9,8 @@ from openai import OpenAI
 
 from models.modelbackend import ModelBackend
 from models.prompting import TASK_NER, get_prompt
-from models.utils import ensure_llama_server
-from schema import AdvancedReceiptData, ProductLineItem
+from models.utils import build_receipt_from_raw, ensure_llama_server
+from schema import AdvancedReceiptData
 
 
 class LlamaServerNERBackend(ModelBackend):
@@ -59,14 +59,7 @@ class LlamaServerNERBackend(ModelBackend):
             response_format={"type": "json_object"},
         )
         raw = json.loads(response.choices[0].message.content)
-        line_items = [
-            ProductLineItem(**{k: item.get(k) for k in ProductLineItem.model_fields})
-            for item in raw.get("productLineItems", [])
-        ]
-        return AdvancedReceiptData(
-            **{k: raw.get(k) for k in AdvancedReceiptData.model_fields if k != "productLineItems"},
-            productLineItems=line_items,
-        )
+        return build_receipt_from_raw(raw)
 
     def close(self):
         self.client.close()

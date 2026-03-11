@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 
 from models.prompting import TASK_VLM, get_retry_prompts
-from models.utils import parse_json_with_retries
+from models.utils import build_receipt_from_raw, parse_json_with_retries
 from models.modelbackend import ModelBackend
-from schema import AdvancedReceiptData, ProductLineItem
+from schema import AdvancedReceiptData
 
 _TOP_P = 0.8
 _TOP_K = 100
@@ -75,16 +75,18 @@ class LlamaMtmdCliVLMBackend(ModelBackend):
             print(f"  [debug] mmproj={self.mmproj_path}")
             print(f"  [debug] cmd={' '.join(cmd)}")
 
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True)
+        stdout = proc.stdout.decode("utf-8", errors="replace")
+        stderr = proc.stderr.decode("utf-8", errors="replace")
         if proc.returncode != 0:
             raise RuntimeError(
                 f"llama-mtmd-cli failed (exit {proc.returncode}).\n"
-                f"stderr:\n{proc.stderr[-1200:]}\nstdout:\n{proc.stdout[-1200:]}"
+                f"stderr:\n{stderr[-1200:]}\nstdout:\n{stdout[-1200:]}"
             )
         if self.debug:
-            print(f"  [debug] mtmd stderr: {proc.stderr[-400:]}")
-            print(f"  [debug] mtmd stdout head: {proc.stdout[:300]!r}")
-        return proc.stdout
+            print(f"  [debug] mtmd stderr: {stderr[-400:]}")
+            print(f"  [debug] mtmd stdout head: {stdout[:300]!r}")
+        return stdout
 
     def extract(self, image_path: str) -> AdvancedReceiptData:
         raw = parse_json_with_retries(
@@ -92,14 +94,7 @@ class LlamaMtmdCliVLMBackend(ModelBackend):
             self.prompts,
             error_prefix="Failed to parse JSON from llama-mtmd-cli response",
         )
-        line_items = [
-            ProductLineItem(**{k: item.get(k) for k in ProductLineItem.model_fields})
-            for item in raw.get("productLineItems", [])
-        ]
-        return AdvancedReceiptData(
-            **{k: raw.get(k) for k in AdvancedReceiptData.model_fields if k != "productLineItems"},
-            productLineItems=line_items,
-        )
+        return build_receipt_from_raw(raw)
 
     def close(self):
         pass

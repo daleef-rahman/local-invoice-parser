@@ -10,6 +10,8 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 
+from schema import AdvancedReceiptData, ProductLineItem
+
 
 def server_healthy(base_url: str) -> bool:
     parsed = urllib.parse.urlparse(base_url)
@@ -102,3 +104,38 @@ def parse_json_with_retries(
                 last_error = exc
 
     raise ValueError(f"{error_prefix}: {last_error}")
+
+
+def _coerce_field_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return str(value)
+
+
+def build_receipt_from_raw(raw: dict) -> AdvancedReceiptData:
+    raw_items = raw.get("productLineItems", [])
+    if not isinstance(raw_items, list):
+        raw_items = []
+
+    line_items = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        line_items.append(
+            ProductLineItem(**{k: _coerce_field_value(item.get(k)) for k in ProductLineItem.model_fields})
+        )
+
+    return AdvancedReceiptData(
+        **{
+            k: _coerce_field_value(raw.get(k))
+            for k in AdvancedReceiptData.model_fields
+            if k != "productLineItems"
+        },
+        productLineItems=line_items,
+    )

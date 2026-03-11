@@ -10,9 +10,9 @@ from PIL import Image
 from openai import OpenAI
 
 from models.prompting import TASK_VLM, get_retry_prompts
-from models.utils import ensure_llama_server, parse_json_with_retries
+from models.utils import build_receipt_from_raw, ensure_llama_server, parse_json_with_retries
 from models.modelbackend import ModelBackend
-from schema import AdvancedReceiptData, ProductLineItem
+from schema import AdvancedReceiptData
 
 
 class LlamaServerVLMBackend(ModelBackend):
@@ -88,14 +88,7 @@ class LlamaServerVLMBackend(ModelBackend):
             self.prompts,
             error_prefix="Failed to parse JSON from llama-server response",
         )
-        line_items = [
-            ProductLineItem(**{k: item.get(k) for k in ProductLineItem.model_fields})
-            for item in raw.get("productLineItems", [])
-        ]
-        return AdvancedReceiptData(
-            **{k: raw.get(k) for k in AdvancedReceiptData.model_fields if k != "productLineItems"},
-            productLineItems=line_items,
-        )
+        return build_receipt_from_raw(raw)
 
     def close(self):
         self.client.close()
